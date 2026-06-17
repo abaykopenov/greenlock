@@ -21,6 +21,7 @@ from greenlock import groundqa as g
 from greenlock.config import OLLAMA_URL
 from greenlock.adapters import detect_verifier
 from greenlock.closed_world import closed_world_check
+from greenlock.danger import scan_file
 from greenlock.patch_applier import create_sandbox_dir, clean_sandbox_dir
 from greenlock.code_writer import truncate_error_output
 
@@ -91,8 +92,8 @@ def verify_patch(repo, diff_text: str, *, base_url: str | None = None,
     repo_path = Path(repo).resolve()
     verdict = {
         "decision": "reject", "reasons": [], "changed_files": [],
-        "closed_world": [], "failing_stage": None, "regression": False,
-        "confidence": None, "test_output": "",
+        "closed_world": [], "danger": [], "failing_stage": None,
+        "regression": False, "confidence": None, "test_output": "",
     }
 
     if not repo_path.is_dir():
@@ -116,6 +117,12 @@ def verify_patch(repo, diff_text: str, *, base_url: str | None = None,
         verifier = detect_verifier(sandbox)
         baseline = verifier.capture_baseline(sandbox)
 
+        # baseline-содержимое изменённых файлов (до диффа) — для danger-диффа
+        baseline_src = {}
+        for rel in changed:
+            ab = repo_copy / rel
+            baseline_src[rel] = ab.read_text(encoding="utf-8") if ab.exists() else None
+
         err = _apply_diff(repo_copy, diff_text)
         if err:
             verdict["reasons"].append(f"диф не применился к репо: {err[:300]}")
@@ -131,6 +138,20 @@ def verify_patch(repo, diff_text: str, *, base_url: str | None = None,
             verdict["closed_world"] = cw[:20]
             verdict["reasons"].append(
                 f"closed-world: {len(cw)} ссыл(ок) на несуществующие символы — отказ")
+            return verdict
+
+        # danger-фильтр: опасные/обфусцирующие конструкции, ВНЕСЁННЫЕ патчем
+        # (eval/exec, os.system/subprocess, детекция тест-окружения). ДО оракула —
+        # чтобы вредоносный патч был отклонён, не успев исполниться.
+        danger = []
+        for rel in changed:
+            for tag in scan_file(repo_copy / rel, baseline_src.get(rel)):
+                danger.append(f"{rel}: {tag}")
+        if danger:
+            verdict["danger"] = danger[:20]
+            verdict["reasons"].append(
+                "danger: патч вносит опасные/обфусцирующие конструкции "
+                f"({', '.join(danger[:6])}) — отказ (не исполнялось)")
             return verdict
 
         # оракул: синтаксис → тесты → регрессия vs baseline
@@ -189,6 +210,8 @@ def main() -> int:
         print("  •", r)
     for e in v["closed_world"]:
         print("    cw:", e)
+    for e in v.get("danger", []):
+        print("    danger:", e)
     if v["test_output"]:
         print("  вывод оракула (хвост):")
         print("    " + v["test_output"].replace("\n", "\n    "))

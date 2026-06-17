@@ -9,6 +9,11 @@ Greenlock is **not another coding agent.** It is the safety layer that sits *bet
 any agent (Devin, Copilot, Cursor, a local model — or a human) and your repository.
 The model proposes; the oracle decides.
 
+> **Scope of the guarantee:** Greenlock defends against *accidental* breakage and
+> hallucinations from a non-adversarial author. It is **not a sandbox** and the
+> verifier **executes code** — run it only in an isolated/ephemeral environment, and
+> read [SECURITY.md](SECURITY.md) for the threat model and a malicious-author's limits.
+
 ---
 
 ## Why
@@ -160,7 +165,19 @@ characterization `testgen`, the web UI, an MCP server, and a CI Action all work 
 - [x] **nested-package & src-layout** support in `testgen`.
 - [~] **closed-world for tree-sitter languages** — Go & Rust (conservative, zero
       false positives); other languages stay oracle-only until validated.
+- [x] **danger-check** — rejects patches that introduce `eval`/`exec`/`os.system`/
+      `subprocess`/test-environment detection, *before* the oracle runs (see [SECURITY.md](SECURITY.md)).
+- [ ] **execution isolation** (opt-in Docker/VM: network-off, read-only, non-root) —
+      the real fix for untrusted-code RCE.
 - [ ] more tree-sitter languages; PyPI release; dashboard; on-prem packaging.
+
+## Security
+
+Greenlock executes your test suite to produce a verdict, and its guarantee targets
+*accidental* breakage — not a malicious author. See **[SECURITY.md](SECURITY.md)** for
+the threat model, known attacker capabilities (RCE via tests, closed-world bypass,
+test-evasion), and mitigations. Run the verifier only in an isolated/ephemeral
+environment.
 
 ## License
 
