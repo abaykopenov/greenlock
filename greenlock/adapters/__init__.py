@@ -1,9 +1,10 @@
 """adapters — интерфейсы языковых адаптеров и верификаторов.
 
 LanguageAdapter: разбор исходного кода → символы + спаны + импорты + ссылки.
-ProjectVerifier: зарезервирован для Фазы 1 (оракул: syntax → types → lint → tests).
+ProjectVerifier: оракул проекта (syntax → types → lint → tests).
 
-Интерфейс соответствует DESIGN.md §4.
+Ядро (closed_world, code_writer, gate) знает только эти два контракта — новый язык
+или тулчейн добавляется новой реализацией, без правок ядра.
 """
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -32,7 +33,7 @@ class ParseResult:
 
 
 class LanguageAdapter(Protocol):
-    """Адаптер для конкретного языка/семейства (DESIGN.md §4).
+    """Адаптер для конкретного языка/семейства.
 
     Ядро знает только этот контракт. Новый язык = новая реализация,
     ядро не трогается.
@@ -46,7 +47,7 @@ class LanguageAdapter(Protocol):
 
 
 class ProjectVerifier(Protocol):
-    """Верификатор проекта — оракул (DESIGN.md §4)."""
+    """Верификатор проекта — оракул (detect → capture_baseline → verify)."""
 
     def detect(self, root) -> bool:
         """Есть ли манифест/тулинг в проекте."""
