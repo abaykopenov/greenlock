@@ -84,25 +84,37 @@ class PytestVerifier:
             except OSError:
                 pass
 
-        python_bin = self._get_python_executable()
-        cmd = [
-            python_bin, "-m", "pytest",
-            f"--junitxml={xml_path}",
-            "--ignore=.groundqa_sandbox"
-        ]
+        if getattr(self, "test_command", None):
+            import shlex
+            cmd = shlex.split(self.test_command)
+            if not any(arg.startswith("--junitxml") for arg in cmd):
+                cmd.append(f"--junitxml={xml_path}")
+        else:
+            python_bin = self._get_python_executable()
+            cmd = [
+                python_bin, "-m", "pytest",
+                f"--junitxml={xml_path}",
+                "--ignore=.groundqa_sandbox"
+            ]
 
         test_ok = True
         test_output = ""
 
         try:
             # Лимит времени 30 секунд для предотвращения бесконечных циклов
-            proc = subprocess.run(
-                cmd,
-                cwd=str(workdir),
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
+            from greenlock.adapters.docker_wrapper import is_docker_enabled, run_in_docker
+            if is_docker_enabled():
+                if "python" in cmd[0] or ".venv" in cmd[0]:
+                    cmd[0] = "python3"
+                proc = run_in_docker(cmd, workdir, "PytestVerifier", timeout=30)
+            else:
+                proc = subprocess.run(
+                    cmd,
+                    cwd=str(workdir),
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
 
             stdout = proc.stdout or ""
             stderr = proc.stderr or ""
@@ -169,20 +181,32 @@ class PytestVerifier:
             except OSError:
                 pass
 
-        python_bin = self._get_python_executable()
-        cmd = [
-            python_bin, "-m", "pytest",
-            f"--junitxml={xml_path}",
-            "--ignore=.groundqa_sandbox"
-        ]
+        if getattr(self, "test_command", None):
+            import shlex
+            cmd = shlex.split(self.test_command)
+            if not any(arg.startswith("--junitxml") for arg in cmd):
+                cmd.append(f"--junitxml={xml_path}")
+        else:
+            python_bin = self._get_python_executable()
+            cmd = [
+                python_bin, "-m", "pytest",
+                f"--junitxml={xml_path}",
+                "--ignore=.groundqa_sandbox"
+            ]
         try:
-            proc = subprocess.run(
-                cmd,
-                cwd=str(workdir),
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
+            from greenlock.adapters.docker_wrapper import is_docker_enabled, run_in_docker
+            if is_docker_enabled():
+                if "python" in cmd[0] or ".venv" in cmd[0]:
+                    cmd[0] = "python3"
+                proc = run_in_docker(cmd, workdir, "PytestVerifier", timeout=30)
+            else:
+                proc = subprocess.run(
+                    cmd,
+                    cwd=str(workdir),
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
         except Exception as e:
             raise RuntimeError(f"Failed to execute pytest for baseline capture: {e}")
 

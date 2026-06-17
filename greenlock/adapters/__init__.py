@@ -80,8 +80,8 @@ def detect_adapters() -> list:
 
 
 def detect_verifier(root) -> ProjectVerifier:
-    """Определить верификатор проекта. Приоритет — по МАНИФЕСТУ (сильный сигнал),
-    затем фолбэк по наличию файлов соответствующего языка."""
+    """Определить верификатор проекта. Приоритет — по greenlock.json,
+    затем по МАНИФЕСТУ (сильный сигнал), затем фолбэк по наличию файлов."""
     from pathlib import Path
     from greenlock.adapters.pytest_verifier import PytestVerifier
     from greenlock.adapters.node_verifier import NodeVerifier
@@ -89,6 +89,36 @@ def detect_verifier(root) -> ProjectVerifier:
     from greenlock.adapters.rust_verifier import RustVerifier
 
     path = Path(root)
+
+    # 0. По greenlock.json (явная конфигурация)
+    for cfg_name in ("greenlock.json", "greenlock.config.json"):
+        cfg_path = path / cfg_name
+        if cfg_path.exists():
+            try:
+                import json
+                cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+                verifier_type = cfg.get("verifier")
+                v = None
+                if verifier_type == "pytest":
+                    v = PytestVerifier()
+                elif verifier_type == "node":
+                    v = NodeVerifier()
+                elif verifier_type == "go":
+                    v = GoVerifier()
+                elif verifier_type == "rust":
+                    v = RustVerifier()
+                elif verifier_type == "custom":
+                    from greenlock.adapters.custom_verifier import CustomVerifier
+                    v = CustomVerifier(cfg)
+                
+                if v:
+                    if "test_command" in cfg:
+                        v.test_command = cfg["test_command"]
+                    if "syntax_command" in cfg:
+                        v.syntax_command = cfg["syntax_command"]
+                    return v
+            except Exception:
+                pass
 
     # 1. По манифесту
     if (path / "go.mod").exists():

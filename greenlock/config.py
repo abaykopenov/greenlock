@@ -40,3 +40,7 @@ QA_MODEL       = get("qa_model",      "GREENLOCK_QA_MODEL",      "gemma3:4b")
 EMBED_MODEL    = get("embed_model",   "GREENLOCK_EMBED_MODEL",   "qwen3-embedding:4b")
 ESCALATE_MODEL = get("escalate_model", "GREENLOCK_ESCALATE",     "")  # пусто = эскалация выкл
 GEMINI_KEY_PATH = Path(get("gemini_key", "GREENLOCK_GEMINI_KEY", str(ROOT / ".gemini_key")))
+SANDBOX_DIR = get("sandbox_dir", "GREENLOCK_SANDBOX_DIR", "")
+DOCKER = get("docker", "GREENLOCK_DOCKER", "")  # "1" or "true" = enabled
+DOCKER_IMAGE = get("docker_image", "GREENLOCK_DOCKER_IMAGE", "")  # default docker image
+

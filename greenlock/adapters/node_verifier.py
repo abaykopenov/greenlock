@@ -71,24 +71,37 @@ class NodeVerifier:
             except OSError:
                 pass
 
-        cmd = [
-            "node", "--test",
-            "--test-reporter=junit",
-            f"--test-reporter-destination={xml_path}"
-        ]
+        if getattr(self, "test_command", None):
+            import shlex
+            cmd = shlex.split(self.test_command)
+            if not any(arg.startswith("--test-reporter-destination") for arg in cmd):
+                cmd += [
+                    "--test-reporter=junit",
+                    f"--test-reporter-destination={xml_path}"
+                ]
+        else:
+            cmd = [
+                "node", "--test",
+                "--test-reporter=junit",
+                f"--test-reporter-destination={xml_path}"
+            ]
 
         test_ok = True
         test_output = ""
 
         try:
             # Лимит времени 30 секунд для предотвращения бесконечных циклов
-            proc = subprocess.run(
-                cmd,
-                cwd=str(workdir),
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
+            from greenlock.adapters.docker_wrapper import is_docker_enabled, run_in_docker
+            if is_docker_enabled():
+                proc = run_in_docker(cmd, workdir, "NodeVerifier", timeout=30)
+            else:
+                proc = subprocess.run(
+                    cmd,
+                    cwd=str(workdir),
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
 
             stdout = proc.stdout or ""
             stderr = proc.stderr or ""
@@ -157,19 +170,32 @@ class NodeVerifier:
             except OSError:
                 pass
 
-        cmd = [
-            "node", "--test",
-            "--test-reporter=junit",
-            f"--test-reporter-destination={xml_path}"
-        ]
+        if getattr(self, "test_command", None):
+            import shlex
+            cmd = shlex.split(self.test_command)
+            if not any(arg.startswith("--test-reporter-destination") for arg in cmd):
+                cmd += [
+                    "--test-reporter=junit",
+                    f"--test-reporter-destination={xml_path}"
+                ]
+        else:
+            cmd = [
+                "node", "--test",
+                "--test-reporter=junit",
+                f"--test-reporter-destination={xml_path}"
+            ]
         try:
-            proc = subprocess.run(
-                cmd,
-                cwd=str(workdir),
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
+            from greenlock.adapters.docker_wrapper import is_docker_enabled, run_in_docker
+            if is_docker_enabled():
+                proc = run_in_docker(cmd, workdir, "NodeVerifier", timeout=30)
+            else:
+                proc = subprocess.run(
+                    cmd,
+                    cwd=str(workdir),
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
         except Exception as e:
             raise RuntimeError(f"Failed to execute Node tests for baseline capture: {e}")
 
