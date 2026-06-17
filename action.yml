@@ -1,0 +1,42 @@
+name: "Greenlock verify-gate"
+description: >
+  Deterministic apply-only-if-green gate on a pull request's diff: closed-world
+  check + your own test suite + regression vs base. Fails the check (blocks the PR)
+  unless the change keeps everything green.
+branding:
+  icon: "shield"
+  color: "green"
+
+inputs:
+  repo-path:
+    description: "Repository root to verify."
+    required: false
+    default: "."
+  ref:
+    description: "Greenlock git ref to install."
+    required: false
+    default: "main"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install Greenlock
+      shell: bash
+      run: pip install "greenlock @ git+https://github.com/abaykopenov/greenlock@${{ inputs.ref }}"
+
+    - name: Greenlock gate on PR diff
+      shell: bash
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      run: |
+        set -euo pipefail
+        if [ -z "${BASE_SHA:-}" ]; then
+          echo "Not a pull_request event — nothing to gate."
+          exit 0
+        fi
+        # Net changes the PR introduces, then rewind the working tree to base so the
+        # gate verifies "base + diff" (it re-runs your suite as the baseline).
+        git diff "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/greenlock.diff"
+        git checkout -q "$BASE_SHA"
+        python -m greenlock.gate "${{ inputs.repo-path }}" "$RUNNER_TEMP/greenlock.diff"

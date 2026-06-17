@@ -1,0 +1,20 @@
+name: verify
+
+# CI самого Greenlock: model-free тесты гейта (Ollama не нужен).
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  gate-selftest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Install (with test extra)
+        run: pip install -e ".[test]"
+      - name: Gate self-test
+        run: pytest tests/ -q

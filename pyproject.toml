@@ -29,10 +29,15 @@ dependencies = []
 treesitter = ["tree-sitter>=0.25", "tree-sitter-language-pack>=1.8"]
 # CA-сертификаты для HTTPS к облачным моделям (Gemini) на сборках без системных CA.
 cloud = ["certifi"]
-all = ["tree-sitter>=0.25", "tree-sitter-language-pack>=1.8", "certifi"]
+# MCP-сервер: гейт как инструмент для ИИ-агентов (greenlock-mcp).
+mcp = ["mcp>=1.0"]
+# Тесты гейта (model-free), для CI.
+test = ["pytest>=7"]
+all = ["tree-sitter>=0.25", "tree-sitter-language-pack>=1.8", "certifi", "mcp>=1.0"]
 
 [project.scripts]
 greenlock-gate = "greenlock.gate:main"
+greenlock-mcp = "greenlock.mcp_server:main"
 
 [tool.setuptools.packages.find]
 include = ["greenlock*"]

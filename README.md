@@ -95,6 +95,50 @@ committed.
 python3 webapp/server.py 8012   # → http://127.0.0.1:8012
 ```
 
+### Harden a repo that has no tests (`testgen`)
+
+When the gate has nothing to verify against (`confidence=degraded`), Greenlock can
+generate **characterization tests** (golden-master): the model proposes deterministic
+scenarios, the *truth* is captured by **executing the current code** (not guessed), and
+only stable, green-on-baseline tests are kept. `harden_and_verify` auto-generates them
+for the changed files and re-verifies — so a behavior change is caught even in an
+untested repo.
+
+```python
+from greenlock.testgen import generate_characterization_tests, harden_and_verify
+generate_characterization_tests("path/to/repo", "module.py")   # → golden-master tests
+harden_and_verify("path/to/repo", open("change.diff").read())  # gate + auto safety net
+```
+
+### Use it as a CI gate (GitHub Action)
+
+Block any PR that breaks green. In the consuming repo's workflow:
+
+```yaml
+on: pull_request
+jobs:
+  greenlock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }          # full history → PR diff
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.x" }
+      - run: pip install -e .              # install YOUR test deps (oracle runs your suite)
+      - uses: abaykopenov/greenlock@main   # the gate: merge or block
+```
+
+The step exits non-zero on **reject**, so with branch protection the PR can't merge.
+
+### Use it from an AI agent (MCP)
+
+Expose the gate as a tool any MCP client (Claude Code, Cursor, …) can call:
+
+```bash
+pip install "greenlock[mcp]"
+greenlock-mcp        # stdio MCP server; tools: verify_patch, harden_and_verify, generate_characterization_tests
+```
+
 ### Benchmarks
 
 A non-circular benchmark (independent test suites as anchors + adversarial tasks proven
@@ -107,14 +151,14 @@ python3 -m benchmarks.run_bench node_pricing  # JavaScript
 
 ## Status & roadmap
 
-Alpha. The gate (closed-world + oracle + regression, gate-only & generate-and-gate) and
-the web UI work today.
+Alpha. The gate (closed-world + oracle + regression; gate-only & generate-and-gate),
+characterization `testgen`, the web UI, an MCP server, and a CI Action all work today.
 
-- [ ] **testgen** — generate *characterization* tests so untested code gets a safety net
-      (closes the "guarantee is only as strong as the suite" gap).
-- [ ] **delivery rails** — MCP tool `verify_patch` (so any agent calls the gate) + a
-      GitHub Action that blocks PRs.
-- [ ] deeper closed-world for tree-sitter languages; dashboard; on-prem packaging.
+- [x] **gate** — closed-world + oracle + regression, gate-only & generate-and-gate.
+- [x] **testgen** — characterization tests so untested code gets a safety net.
+- [x] **delivery rails** — MCP tool (`greenlock-mcp`) + GitHub Action (`action.yml`).
+- [ ] deeper closed-world for tree-sitter languages; nested-package `testgen`;
+      dashboard; on-prem packaging.
 
 ## License
 
