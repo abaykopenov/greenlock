@@ -37,6 +37,7 @@ all = ["tree-sitter>=0.25", "tree-sitter-language-pack>=1.8", "certifi", "mcp>=1
 
 [project.scripts]
 greenlock-gate = "greenlock.gate:main"
+greenlock-gate-isolated = "greenlock.isolate:main"
 greenlock-mcp = "greenlock.mcp_server:main"
 
 [tool.setuptools.packages.find]

@@ -30,8 +30,10 @@ access.** The sandbox isolates *files* (for rollback), **not execution**.
    - *Mitigation (defense-in-depth):* the **danger-check** ([greenlock/danger.py](greenlock/danger.py))
      rejects patches that *introduce* `os.system`/`subprocess`/`eval`/`exec`/… **before
      the oracle runs**, so the demonstrated payloads are refused without executing.
-   - *Real fix:* run the verifier inside an isolated runner/container. Opt-in Docker
-     isolation (`--network none`, read-only, non-root, resource limits) is on the roadmap.
+   - *Real fix:* run the whole gate inside a one-shot container — **opt-in Docker
+     isolation is implemented**: `--network none`, read-only rootfs, repo mounted
+     read-only, non-root, `--cap-drop ALL`, resource limits, `--rm`. See
+     [docs/isolation.md](docs/isolation.md) (`python -m greenlock.isolate <repo> <diff>`).
 
 2. **Closed-world bypass.** `closed_world` is a heuristic AST pre-filter, **not a
    security boundary**. Dynamic dispatch (`eval`, `getattr`, `__import__`) hides
@@ -63,6 +65,8 @@ and threat-model challenges are very welcome — this document exists because of
 
 ## Roadmap
 
-- Opt-in **Docker/VM isolation** for the verifier (network-off, read-only, non-root).
+- [x] Opt-in **Docker isolation** for the verifier (network-off, read-only, non-root,
+      cap-drop, limits) — see [docs/isolation.md](docs/isolation.md).
+- microVM runtime (gVisor/Kata/Firecracker) for hosted/high-assurance use.
 - Configurable danger allow/deny lists.
 - Danger-check for non-Python languages (via tree-sitter).

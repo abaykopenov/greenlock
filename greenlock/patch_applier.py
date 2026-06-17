@@ -11,6 +11,7 @@ import uuid
 from pathlib import Path
 
 from greenlock.adapters import detect_adapters
+from greenlock.config import SANDBOX_DIR
 
 __all__ = ["create_sandbox_dir", "clean_sandbox_dir", "apply_patch"]
 
@@ -18,15 +19,19 @@ __all__ = ["create_sandbox_dir", "clean_sandbox_dir", "apply_patch"]
 def create_sandbox_dir(root: Path) -> Path:
     """Создать изолированную директорию песочницы.
 
-    Копирует директорию root в .groundqa_sandbox/sandbox_XXXX/name_директории
-    и возвращает путь к sandbox_XXXX (базовый каталог для запуска тестов).
+    Копирует директорию root в <base>/sandbox_XXXX/name_директории и возвращает
+    путь к sandbox_XXXX (базовый каталог для запуска тестов). База — из
+    config.SANDBOX_DIR (для read-only контейнера → tmpfs), иначе .groundqa_sandbox
+    рядом с проектом.
     """
     root = Path(root).resolve()
-    
-    # Находим корень воркспейса
-    workspace_root = Path(__file__).parent.parent.resolve()
-    sandbox_base = workspace_root / ".groundqa_sandbox"
-    sandbox_base.mkdir(exist_ok=True)
+
+    if SANDBOX_DIR:
+        sandbox_base = Path(SANDBOX_DIR)
+    else:
+        workspace_root = Path(__file__).parent.parent.resolve()
+        sandbox_base = workspace_root / ".groundqa_sandbox"
+    sandbox_base.mkdir(parents=True, exist_ok=True)
 
     unique_id = uuid.uuid4().hex[:8]
     sandbox_dir = sandbox_base / f"sandbox_{unique_id}"
@@ -51,8 +56,14 @@ def create_sandbox_dir(root: Path) -> Path:
 
 
 def clean_sandbox_dir(sandbox_dir: Path) -> None:
-    """Удалить директорию песочницы."""
-    if sandbox_dir.exists() and ".groundqa_sandbox" in str(sandbox_dir):
+    """Удалить директорию песочницы (только наши каталоги sandbox_*)."""
+    if not sandbox_dir.exists():
+        return
+    safe = ".groundqa_sandbox" in str(sandbox_dir) or (
+        SANDBOX_DIR and sandbox_dir.name.startswith("sandbox_")
+        and str(sandbox_dir.resolve()).startswith(str(Path(SANDBOX_DIR).resolve()))
+    )
+    if safe:
         shutil.rmtree(str(sandbox_dir), ignore_errors=True)
 
 
