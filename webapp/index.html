@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Low-model — grounded Q&A</title>
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --line:#262b36; --fg:#e6e9ef; --mut:#8b93a4;
+          --acc:#5aa1ff; --ok:#3ec28f; --bad:#ff6b6b; --warn:#f5b942; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif; }
+  header { display:flex; gap:12px; align-items:center; flex-wrap:wrap;
+           padding:12px 16px; border-bottom:1px solid var(--line); background:var(--panel); }
+  header h1 { font-size:15px; margin:0 12px 0 0; font-weight:600; }
+  select, textarea, button { font:inherit; color:var(--fg); background:#11141a;
+           border:1px solid var(--line); border-radius:8px; padding:7px 10px; }
+  label.chk { color:var(--mut); display:flex; gap:6px; align-items:center; cursor:pointer; }
+  main { max-width:940px; margin:0 auto; padding:16px; }
+  #chat > div { margin-bottom:18px; }
+  .q { background:#1d2330; border:1px solid var(--line); border-radius:10px;
+       padding:10px 12px; font-weight:600; }
+  .a { border:1px solid var(--line); border-radius:10px; padding:0; overflow:hidden; }
+  .stages { padding:10px 12px; border-bottom:1px solid var(--line); background:#13161d; }
+  .stage { display:flex; gap:8px; align-items:baseline; padding:3px 0; color:var(--mut); }
+  .stage .t { color:#5b6373; font-variant-numeric:tabular-nums; min-width:48px; }
+  .stage b { color:var(--fg); font-weight:600; }
+  .stage.live b::after { content:" ⏳"; }
+  .bar { height:6px; background:#222836; border-radius:4px; overflow:hidden; margin-top:4px; }
+  .bar > i { display:block; height:100%; background:var(--acc); width:0%; transition:width .2s; }
+  .hits { font-family:ui-monospace,Menlo,monospace; font-size:12.5px; margin-top:4px; }
+  .hits div { color:var(--mut); }
+  .hits .top { color:var(--ok); }
+  .answer { padding:12px; white-space:pre-wrap; }
+  .cites { padding:0 12px 12px; display:flex; gap:6px; flex-wrap:wrap; }
+  .cite { font-family:ui-monospace,monospace; font-size:12px; padding:2px 8px;
+          border-radius:20px; border:1px solid var(--line); }
+  .cite.ok { color:var(--ok); border-color:#244e3c; }
+  .cite.bad { color:var(--bad); border-color:#4e2424; }
+  .meta { padding:8px 12px; border-top:1px solid var(--line); color:var(--mut);
+          font-size:12.5px; display:flex; gap:16px; flex-wrap:wrap; background:#13161d; }
+  .err { color:var(--bad); }
+  .verdict { padding:10px 12px; font-weight:700; border-bottom:1px solid var(--line); }
+  .verdict.applied { color:var(--ok); background:#11231b; }
+  .verdict.refused { color:var(--warn); background:#241f10; }
+  .verdict.failed, .verdict.error { color:var(--bad); background:#231314; }
+  .diff { margin:0; padding:10px 12px; overflow:auto; font-family:ui-monospace,Menlo,monospace;
+          font-size:12px; line-height:1.45; border-top:1px solid var(--line); white-space:pre; }
+  .diff .fn { color:var(--acc); font-weight:700; }
+  .diff .add { color:var(--ok); }
+  .diff .del { color:var(--bad); }
+  .diff .hunk { color:#9aa6ff; }
+  .stage .out { display:block; margin-top:4px; padding:6px 8px; background:#0c0e13;
+          border:1px solid var(--line); border-radius:6px; white-space:pre-wrap;
+          font-family:ui-monospace,monospace; font-size:11.5px; color:var(--mut); }
+  #writeopts { display:none; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px; }
+  #writeopts.show { display:flex; }
+  #writeopts select, #writeopts input { max-width:280px; }
+  details.test summary { color:var(--mut); cursor:pointer; }
+  details.test textarea { width:100%; min-height:80px; margin-top:6px;
+          font-family:ui-monospace,monospace; font-size:12px; }
+  .hint { color:var(--mut); font-size:12px; width:100%; }
+  form { display:flex; gap:8px; margin-top:8px; }
+  textarea { flex:1; resize:vertical; min-height:46px; }
+  button.ask { background:var(--acc); color:#0a0d12; border:none; font-weight:700; cursor:pointer; }
+  button.ask:disabled { opacity:.5; cursor:default; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Low-model · grounded</h1>
+  Режим <select id="mode">
+    <option value="ask">Q&A (чтение)</option>
+    <option value="write">Правка кода</option>
+  </select>
+  Репо <select id="repo"></select>
+  Модель <select id="model"></select>
+  <label class="chk"><input type="checkbox" id="esc" checked> эскалация → Gemini</label>
+</header>
+<main>
+  <div id="chat"></div>
+  <div id="writeopts">
+    Файл-цель <select id="target"></select>
+    <details class="test">
+      <summary>тест приёмки (необязательно, но надёжнее)</summary>
+      <input id="testfile" placeholder="имя файла теста, напр. test_pricing_x.py">
+      <textarea id="testcontent" placeholder="Тест, который сейчас ПАДАЕТ, а после правки должен пройти (RED→GREEN). Без него правка применяется, только если не ломает существующие тесты и проходит closed-world."></textarea>
+    </details>
+    <span class="hint">Правка применяется к файлу на диске <b>только если оракул зелёный</b> (closed-world → нет регрессии → тесты). Иначе — отказ, файл не тронут.</span>
+  </div>
+  <form id="form">
+    <textarea id="q" placeholder="Вопрос по коду репозитория…  (Enter — отправить, Shift+Enter — перенос)"></textarea>
+    <button class="ask" id="send">Спросить</button>
+  </form>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const chat = $("#chat");
+
+const mode = () => $("#mode").value;
+
+async function init() {
+  const r = await (await fetch("/api/repos")).json();
+  $("#repo").innerHTML = r.repos.map(x => `<option>${x}</option>`).join("");
+  const m = await (await fetch("/api/models")).json();
+  $("#model").innerHTML = m.models.map(x =>
+     `<option value="${x.name}">${x.name} — ${x.where}</option>`).join("");
+  pickModel();
+  await loadFiles();
+  applyMode();
+}
+init();
+
+// выбрать модель по умолчанию под режим: Q&A → gemma, правка → qwen3-coder
+function pickModel() {
+  const want = mode() === "write" ? "qwen3-coder" : "gemma";
+  const opt = [...$("#model").options].find(o => o.value.startsWith(want))
+           || [...$("#model").options].find(o => o.value.startsWith("qwen"));
+  if (opt) $("#model").value = opt.value;
+}
+
+async function loadFiles() {
+  const repo = $("#repo").value;
+  if (!repo) return;
+  try {
+    const r = await (await fetch("/api/files?repo=" + encodeURIComponent(repo))).json();
+    $("#target").innerHTML = (r.files || []).map(x => `<option>${x}</option>`).join("");
+  } catch (_) { $("#target").innerHTML = ""; }
+}
+
+function applyMode() {
+  const w = mode() === "write";
+  $("#writeopts").classList.toggle("show", w);
+  $("#send").textContent = w ? "Изменить" : "Спросить";
+  $("#esc").parentElement.style.display = "";  // эскалация полезна в обоих режимах
+  $("#q").placeholder = w
+    ? "Что изменить в файле? Напр.: «добавь метод item_count(), возвращающий число позиций»  (Enter — отправить)"
+    : "Вопрос по коду репозитория…  (Enter — отправить, Shift+Enter — перенос)";
+  pickModel();
+}
+
+$("#mode").addEventListener("change", applyMode);
+$("#repo").addEventListener("change", loadFiles);
+
+$("#q").addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#form").requestSubmit(); }
+});
+
+$("#form").addEventListener("submit", e => {
+  e.preventDefault();
+  const text = $("#q").value.trim();
+  if (!text) return;
+  if (mode() === "write") write(text); else ask(text);
+  $("#q").value = "";
+});
+
+function el(html) { const d = document.createElement("div"); d.innerHTML = html; return d.firstElementChild; }
+
+function ask(question) {
+  $("#send").disabled = true;
+  chat.appendChild(el(`<div class="q"></div>`)).textContent = question;
+
+  const block = el(`<div class="a"><div class="stages"></div>
+      <div class="answer" style="display:none"></div>
+      <div class="cites"></div>
+      <div class="meta" style="display:none"></div></div>`);
+  chat.appendChild(block);
+  const stages = block.querySelector(".stages");
+  const answerEl = block.querySelector(".answer");
+  const citesEl = block.querySelector(".cites");
+  const metaEl = block.querySelector(".meta");
+  let liveStage = null;          // текущая «делается сейчас» строка
+  const named = {};              // обновляемые по типу (embed/generate)
+
+  function line(t, html, key) {
+    let row = key && named[key];
+    if (!row) {
+      row = el(`<div class="stage"><span class="t"></span><span class="body"></span></div>`);
+      stages.appendChild(row);
+      if (key) named[key] = row;
+    }
+    row.querySelector(".t").textContent = t.toFixed(2) + "s";
+    row.querySelector(".body").innerHTML = html;
+    if (liveStage && liveStage !== row) liveStage.classList.remove("live");
+    return row;
+  }
+  const live = row => { row.classList.add("live"); liveStage = row; };
+  const done = () => { if (liveStage) liveStage.classList.remove("live"); liveStage = null; };
+
+  const params = new URLSearchParams({
+    repo: $("#repo").value, question,
+    model: $("#model").value,
+    escalate: $("#esc").checked ? "gemini-2.5-flash" : "",
+  });
+  const es = new EventSource("/api/ask?" + params);
+  chat.scrollIntoView(false);
+
+  es.onmessage = m => {
+    const e = JSON.parse(m.data);
+    if (e.type === "start") live(line(e.t, `<b>Старт</b> · ${e.model}${e.escalate ? " (+эск. " + e.escalate + ")" : ""}`));
+    else if (e.type === "index") line(e.t, `<b>Индекс</b> · ${e.files} файлов, ${e.chunks} чанков, ${e.symbols} символов, ${e.yaml_keys} yaml-ключей`);
+    else if (e.type === "structural") line(e.t, e.hit
+        ? `<b>Структурный слой</b> · попадание (0 токенов) ✅`
+        : `<b>Структурный слой</b> · нет → семантический поиск`);
+    else if (e.type === "embed") {
+      const pct = e.total ? Math.round(100 * e.done / e.total) : 100;
+      const txt = e.total ? `${e.done}/${e.total}, ETA ~${e.eta}s` : `всё в кэше (${e.cached})`;
+      const row = line(e.t, `<b>Эмбеддинги</b> · ${txt}<div class="bar"><i style="width:${pct}%"></i></div>`, "embed");
+      live(row);
+    }
+    else if (e.type === "retrieve") {
+      const hits = e.results.map((r, i) =>
+        `<div class="${i===0?'top':''}">${r.sim.toFixed(3)}  ${r.file}:${r.line}</div>`).join("");
+      line(e.t, `<b>Поиск</b> · топ-${e.results.length} кусков<div class="hits">${hits}</div>`);
+    }
+    else if (e.type === "gate") line(e.t, `<b>Порог</b> · top ${e.top_sim} vs ${e.floor} → ${e.passed ? "проходит" : "отсечён (модель не вызвана)"}`);
+    else if (e.type === "generate") live(line(e.t, `<b>Генерация</b> · ${e.model} ${e.stage}`, "generate"));
+    else if (e.type === "escalate") live(line(e.t, `<b>Эскалация</b> · → ${e.model} (причина: ${e.reason})`));
+    else if (e.type === "answer") { /* промежуточный ответ — покажем в done */ }
+    else if (e.type === "done") {
+      done();
+      line(e.t, `<b>Готово</b> · источник: ${e.source}`);
+      answerEl.style.display = "block";
+      answerEl.textContent = e.answer;
+      citesEl.innerHTML = (e.cites || []).map(c =>
+        `<span class="cite ${c.ok?'ok':'bad'}">${c.ok?'✓':'✗'} ${c.cite}</span>`).join("");
+      metaEl.style.display = "flex";
+      metaEl.innerHTML =
+        `<span>⏱ ${e.t.toFixed(2)}s</span>` +
+        `<span>модель: ${e.model}</span>` +
+        `<span>токенов всего: ${e.total_tokens}</span>` +
+        `<span>платных (облако): ${e.paid_tokens}</span>`;
+      es.close(); $("#send").disabled = false;
+    }
+    else if (e.type === "error") {
+      done(); line(e.t, `<b class="err">Ошибка</b> · ${e.message}`);
+      es.close(); $("#send").disabled = false;
+    }
+    chat.scrollIntoView(false);
+  };
+  es.onerror = () => { done(); es.close(); $("#send").disabled = false; };
+}
+
+function esc(s) { return (s == null ? "" : String(s))
+  .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+function renderDiff(diffs) {
+  if (!diffs || !diffs.length) return "";
+  return diffs.map(d => {
+    const head = `<div class="fn">${d.status === "new" ? "новый файл" : "изменён"}: ${esc(d.file)}</div>`;
+    const body = esc(d.diff).split("\n").map(ln => {
+      if (ln.startsWith("+++") || ln.startsWith("---")) return `<span class="fn">${ln}</span>`;
+      if (ln.startsWith("@@")) return `<span class="hunk">${ln}</span>`;
+      if (ln.startsWith("+")) return `<span class="add">${ln}</span>`;
+      if (ln.startsWith("-")) return `<span class="del">${ln}</span>`;
+      return ln;
+    }).join("\n");
+    return `<pre class="diff">${head}${body}</pre>`;
+  }).join("");
+}
+
+function write(instruction) {
+  const target = $("#target").value.trim();
+  if (!target) { alert("Нет файлов для правки в этом репо"); return; }
+  $("#send").disabled = true;
+  chat.appendChild(el(`<div class="q"></div>`)).textContent = "✎ " + target + " — " + instruction;
+
+  const block = el(`<div class="a"><div class="verdict" style="display:none"></div>
+      <div class="stages"></div>
+      <div class="answer" style="display:none"></div>
+      <div class="meta" style="display:none"></div></div>`);
+  chat.appendChild(block);
+  const stages = block.querySelector(".stages");
+  const verdictEl = block.querySelector(".verdict");
+  const answerEl = block.querySelector(".answer");
+  const metaEl = block.querySelector(".meta");
+  let liveStage = null;
+  const named = {};
+
+  function line(t, html, key) {
+    let row = key && named[key];
+    if (!row) {
+      row = el(`<div class="stage"><span class="t"></span><span class="body"></span></div>`);
+      stages.appendChild(row);
+      if (key) named[key] = row;
+    }
+    row.querySelector(".t").textContent = t.toFixed(2) + "s";
+    row.querySelector(".body").innerHTML = html;
+    if (liveStage && liveStage !== row) liveStage.classList.remove("live");
+    return row;
+  }
+  const live = row => { row.classList.add("live"); liveStage = row; };
+  const stop = () => { if (liveStage) liveStage.classList.remove("live"); liveStage = null; };
+
+  const params = new URLSearchParams({
+    repo: $("#repo").value, instruction, target,
+    model: $("#model").value,
+    escalate: $("#esc").checked ? "gemini-2.5-flash" : "",
+    test_file: $("#testfile").value.trim(),
+    test_content: $("#testcontent").value,
+  });
+  const es = new EventSource("/api/write?" + params);
+  chat.scrollIntoView(false);
+
+  es.onmessage = m => {
+    const e = JSON.parse(m.data);
+    if (e.type === "start") live(line(e.t, `<b>Старт</b> · правка ${esc(e.target)} · ${esc(e.model)}${e.escalate ? " (+эск.)" : ""}${e.test ? " · тест " + esc(e.test) : ""}`));
+    else if (e.type === "index") line(e.t, `<b>Индекс</b> · ${e.files} файлов, ${e.symbols} символов`);
+    else if (e.type === "sandbox") line(e.t, `<b>Песочница</b> · работаем на копии, репо не трогаем`);
+    else if (e.type === "baseline") line(e.t, `<b>Базлайн</b> · ${esc(e.verifier)}, зелёных тестов: ${e.passed}`);
+    else if (e.type === "precondition") line(e.t, `<b>Предусловие</b> · тест «${esc(e.test)}» сейчас падает (RED) ✓`);
+    else if (e.type === "attempt") live(line(e.t, `<b>Попытка ${e.n}</b> · ${esc(e.model)}${e.repair ? " (ремонт по ошибке)" : ""}`, "attempt"));
+    else if (e.type === "generate") live(line(e.t, `<b>Генерация</b> · ${esc(e.model)} пишет патч`, "generate"));
+    else if (e.type === "generated") line(e.t, `<b>Генерация</b> · ${esc(e.model)}, ${e.chars} символов`, "generate");
+    else if (e.type === "parse") line(e.t, e.ok
+        ? `<b>Патч</b> · ${e.count} шт. [${(e.modes||[]).join(", ")}] ✓`
+        : `<b>Патч</b> · некорректный JSON ✗`);
+    else if (e.type === "apply") line(e.t, e.ok
+        ? `<b>Применение</b> · ${(e.files||[]).length} файл(ов) в песочнице`
+        : `<b class="err">Применение ✗</b> · ${esc(e.error)}`);
+    else if (e.type === "closed_world") line(e.t, e.ok
+        ? `<b>Closed-world</b> · только существующие символы ✓`
+        : `<b class="err">Closed-world ✗</b><span class="out">${esc((e.errors||[]).join("\n"))}</span>`);
+    else if (e.type === "verify") live(line(e.t, `<b>Оракул</b> · гоняет тесты`, "verify"));
+    else if (e.type === "verified") line(e.t, `<b>Оракул</b> · passed=${e.passed}, confidence=${esc(e.confidence)}${e.regression ? ', <span class="err">РЕГРЕССИЯ</span>' : ""}`, "verify");
+    else if (e.type === "verify_fail") line(e.t, `<b class="err">Не прошло</b> · стадия «${esc(e.stage)}»<span class="out">${esc(e.output)}</span>`);
+    else if (e.type === "applied") line(e.t, `<b>Применено</b> · после ${e.tries} попыт.`);
+    else if (e.type === "done") {
+      stop();
+      const v = { applied: ["applied","✅ Применено — оракул зелёный, файл на диске изменён"],
+                  refused: ["refused","🛡 Отказ — правка ломала тесты/регрессия. Файл НЕ изменён"],
+                  failed:  ["failed","⚠ Не удалось получить проверенный патч. Файл НЕ изменён"],
+                  error:   ["error","Ошибка среды — см. сообщение"] }[e.status] || ["failed", e.status];
+      verdictEl.style.display = "block";
+      verdictEl.className = "verdict " + v[0];
+      verdictEl.textContent = v[1];
+      const diffHtml = renderDiff(e.diffs);
+      if (diffHtml) { answerEl.style.display = "block"; answerEl.innerHTML = diffHtml; }
+      else if (e.status !== "applied") { answerEl.style.display = "block"; answerEl.textContent = e.message || ""; }
+      metaEl.style.display = "flex";
+      metaEl.innerHTML =
+        `<span>⏱ ${e.t.toFixed(2)}s</span>` +
+        `<span>статус: ${esc(e.status)}</span>` +
+        `<span>токенов всего: ${e.total_tokens}</span>`;
+      es.close(); $("#send").disabled = false;
+    }
+    else if (e.type === "error") {
+      stop(); line(e.t, `<b class="err">Ошибка</b> · ${esc(e.message)}`);
+      verdictEl.style.display = "block"; verdictEl.className = "verdict error";
+      verdictEl.textContent = "Ошибка: " + e.message;
+      es.close(); $("#send").disabled = false;
+    }
+    chat.scrollIntoView(false);
+  };
+  es.onerror = () => { stop(); es.close(); $("#send").disabled = false; };
+}
+</script>
+</body>
+</html>

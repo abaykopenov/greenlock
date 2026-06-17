@@ -1,0 +1,9 @@
+{
+  "name": "bench_node_pricing",
+  "version": "1.0.0",
+  "description": "Cart pricing benchmark for Node.js",
+  "type": "commonjs",
+  "scripts": {
+    "test": "node --test"
+  }
+}

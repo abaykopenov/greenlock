@@ -1,0 +1,25 @@
+# --- секреты: НИКОГДА не коммитить ---
+.gemini_key
+*.key
+.env
+greenlock.local.json
+
+# --- кэши / артефакты ---
+__pycache__/
+*.py[cod]
+.groundqa_cache/
+.groundqa_sandbox/
+.embed_cache/
+.rlm_cache/
+.pytest_cache/
+*.pkl
+
+# --- node ---
+node_modules/
+
+# --- сторонние тестовые репо (чужой код, свой .git) ---
+repos/openegiz
+
+# --- OS / редактор ---
+.DS_Store
+.claude/settings.local.json

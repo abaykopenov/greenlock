@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "greenlock"
+version = "0.1.0"
+description = "Deterministic verify-gate for AI code changes: apply only if green, else refuse (WRONG-APPLY = 0)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+authors = [{ name = "abay", email = "abaykopenov@gmail.com" }]
+keywords = [
+    "ai", "llm", "coding-agent", "code-review", "verification",
+    "merge-gate", "guardrails", "test-driven", "hallucination",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Testing",
+]
+# Ядро — чистый stdlib. Внешнее всё опционально (есть фолбэки).
+dependencies = []
+
+[project.optional-dependencies]
+# Глубокий closed-world/парсинг для Go/Rust/Java/C/C++/C#/Ruby/PHP.
+treesitter = ["tree-sitter>=0.25", "tree-sitter-language-pack>=1.8"]
+# CA-сертификаты для HTTPS к облачным моделям (Gemini) на сборках без системных CA.
+cloud = ["certifi"]
+all = ["tree-sitter>=0.25", "tree-sitter-language-pack>=1.8", "certifi"]
+
+[project.scripts]
+greenlock-gate = "greenlock.gate:main"
+
+[tool.setuptools.packages.find]
+include = ["greenlock*"]
