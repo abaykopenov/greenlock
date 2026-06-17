@@ -50,9 +50,22 @@ print(json.dumps(out))
 '''
 
 
-def _module_name(rel: str) -> str:
-    """rel-путь файла → имя модуля (pricing.py → pricing; pkg/m.py → pkg.m)."""
-    return ".".join(Path(rel).with_suffix("").parts)
+def _import_target(repo_path: Path, rel: str) -> tuple[str, str]:
+    """rel-путь файла → (import_root, module).
+
+    import_root — каталог (rel к repo), который надо положить в sys.path; module —
+    dotted-имя модуля относительно него. Учитывает пакеты (__init__.py) и src-layout:
+      pricing.py             → (".",   "pricing")
+      pkg/sub/mod.py (пакеты)→ (".",   "pkg.sub.mod")
+      src/shop/cart.py       → ("src", "shop.cart")   # src без __init__.py
+    """
+    file = repo_path / rel
+    parts: list[str] = []
+    d = file.parent
+    while d != repo_path and (d / "__init__.py").exists():
+        parts.insert(0, d.name)
+        d = d.parent
+    return str(d.relative_to(repo_path)), ".".join([*parts, file.stem])
 
 
 def _public_symbols(target_file: str, content: str) -> list[str]:
@@ -146,8 +159,16 @@ def _capture(repo_dir: Path, module: str, scenarios: list) -> list[dict]:
                 pass
 
 
+_STAR_IMPORT = re.compile(r"^\s*from\s+\S+\s+import\s+\*")
+
+
 def _emit_tests(module: str, kept: list[dict]) -> str:
-    """Собрать pytest-файл: каждый сценарий → assert repr(expr) == зафиксированный repr."""
+    """Собрать pytest-файл: каждый сценарий → assert repr(expr) == зафиксированный repr.
+
+    Из setup выбрасываются строки `from ... import *`: они легальны в module-level
+    exec (где снимался capture), но запрещены ВНУТРИ функции — нужные имена уже даёт
+    модульный `from {module} import *` в шапке файла.
+    """
     lines = [
         '"""Характеризационные тесты (golden-master) — сгенерированы greenlock.testgen.',
         f"Фиксируют ТЕКУЩЕЕ поведение модуля {module}: любое изменение поведения "
@@ -160,7 +181,7 @@ def _emit_tests(module: str, kept: list[dict]) -> str:
     for i, k in enumerate(kept):
         lines.append(f"def test_char_{i}():")
         for sl in (k["setup"] or "").split("\n"):
-            if sl.strip():
+            if sl.strip() and not _STAR_IMPORT.match(sl):
                 lines.append(f"    {sl}")
         lines.append(f"    assert repr({k['expr']}) == {json.dumps(k['repr'])}")
         lines.append("")
@@ -188,7 +209,9 @@ def _green_filter(repo_path: Path, test_rel: str, module: str,
     sandbox = create_sandbox_dir(repo_path)
     try:
         repo_copy = sandbox / repo_path.name
-        (repo_copy / test_rel).write_text(content, encoding="utf-8")
+        target = repo_copy / test_rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
         xml = repo_copy / "_char_report.xml"
         subprocess.run([sys.executable, "-m", "pytest", test_rel,
                         f"--junitxml={xml}", "-q"],
@@ -227,7 +250,7 @@ def generate_characterization_tests(repo, target_file, *, symbols=None,
         return out
 
     content = abs_target.read_text(encoding="utf-8")
-    module = _module_name(rel)
+    import_root_rel, module = _import_target(repo_path, rel)
     syms = symbols or _public_symbols(rel, content)
 
     scenarios, _ = _ask_scenarios(module, content, syms, max_scenarios,
@@ -239,9 +262,9 @@ def generate_characterization_tests(repo, target_file, *, symbols=None,
     # исполняем в песочнице (изоляция), дважды — для проверки детерминизма
     sandbox = create_sandbox_dir(repo_path)
     try:
-        repo_copy = sandbox / repo_path.name
-        run1 = _capture(repo_copy, module, scenarios)
-        run2 = _capture(repo_copy, module, scenarios)
+        cap_cwd = sandbox / repo_path.name / import_root_rel
+        run1 = _capture(cap_cwd, module, scenarios)
+        run2 = _capture(cap_cwd, module, scenarios)
     finally:
         clean_sandbox_dir(sandbox)
 
@@ -253,7 +276,7 @@ def generate_characterization_tests(repo, target_file, *, symbols=None,
         out["note"] = "ни один сценарий не оказался стабильным/исполнимым"
         return out
 
-    test_rel = f"test_char_{Path(rel).stem}.py"
+    test_rel = str(Path(import_root_rel) / f"test_char_{Path(rel).stem}.py")
     kept = _green_filter(repo_path, test_rel, module, kept)
     if not kept:
         out["dropped"] = len(scenarios)
