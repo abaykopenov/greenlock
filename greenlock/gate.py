@@ -114,7 +114,11 @@ def verify_patch(repo, diff_text: str, *, base_url: str | None = None,
             p = repo_copy / rel
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(content, encoding="utf-8")
-        verifier = detect_verifier(sandbox)
+        # Верификатор определяем по КАТАЛОГУ РЕПО (там манифест), а не по родителю
+        # песочницы — иначе манифест не виден и фолбэк может выбрать чужой раннер
+        # (напр. Node для Python-проекта с .js-артефактами). Прогон тестов —
+        # по-прежнему из sandbox (рекурсивное обнаружение).
+        verifier = detect_verifier(repo_copy)
         baseline = verifier.capture_baseline(sandbox)
 
         # baseline-содержимое изменённых файлов (до диффа) — для danger-диффа

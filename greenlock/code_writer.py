@@ -161,9 +161,11 @@ def write_code(args, index: dict, task_desc: str, target_file: str,
             except Exception as e:
                 return False, f"Failed to write task test to sandbox: {e}", total_usage, "error"
 
-        # 2. Определение верификатора и запуск baseline
+        # 2. Определение верификатора и запуск baseline.
+        # Детект — по каталогу репо (sandbox/<root.name>), где лежит манифест;
+        # прогон — из sandbox (рекурсивное обнаружение тестов).
         try:
-            verifier = detect_verifier(sandbox)
+            verifier = detect_verifier(sandbox / root.name)
             baseline = verifier.capture_baseline(sandbox)
         except Exception as e:
             return False, f"Baseline capture crashed: {e}", total_usage, "error"

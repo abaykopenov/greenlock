@@ -107,7 +107,9 @@ class PythonASTVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Import(self, node):
-        names = [alias.name for alias in node.names]
+        # Имя, ВВОДИМОЕ в неймспейс: алиас, иначе модуль (closed_world сам срежет
+        # точечный путь до верхнего пакета). `import a.b as c` → c; `import a.b` → a.b→a.
+        names = [alias.asname or alias.name for alias in node.names]
         self.imports.append({
             "module": None,
             "names": names,
@@ -117,7 +119,8 @@ class PythonASTVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node):
-        names = [alias.name for alias in node.names]
+        # `from m import x as y` → y; `from m import x` → x; `from m import *` → *.
+        names = [alias.asname or alias.name for alias in node.names]
         self.imports.append({
             "module": node.module,
             "names": names,
