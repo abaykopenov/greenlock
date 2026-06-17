@@ -14,7 +14,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.x"
-      - name: Install (with test extra)
-        run: pip install -e ".[test]"
+      - name: Install (test + tree-sitter for multi-language closed-world)
+        run: pip install -e ".[test,treesitter]"
       - name: Gate self-test
         run: pytest tests/ -q

@@ -157,8 +157,10 @@ characterization `testgen`, the web UI, an MCP server, and a CI Action all work 
 - [x] **gate** — closed-world + oracle + regression, gate-only & generate-and-gate.
 - [x] **testgen** — characterization tests so untested code gets a safety net.
 - [x] **delivery rails** — MCP tool (`greenlock-mcp`) + GitHub Action (`action.yml`).
-- [ ] deeper closed-world for tree-sitter languages; nested-package `testgen`;
-      dashboard; on-prem packaging.
+- [x] **nested-package & src-layout** support in `testgen`.
+- [~] **closed-world for tree-sitter languages** — Go & Rust (conservative, zero
+      false positives); other languages stay oracle-only until validated.
+- [ ] more tree-sitter languages; PyPI release; dashboard; on-prem packaging.
 
 ## License
 

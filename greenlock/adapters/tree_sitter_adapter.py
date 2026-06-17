@@ -58,6 +58,29 @@ def _named_children(n) -> list:
     return [n.named_child(i) for i in range(_v(n.named_child_count))]
 
 
+# Языки, для которых closed-world ВКЛЮЧЁН (валидировано на фикстурах).
+# refs собираются КОНСЕРВАТИВНО: только bare-вызовы (callee — простой identifier),
+# member/qualified/макросы автоматически отсеиваются. defined/builtins — щедро
+# (over-collect = лишь false-negative, безопасно). Прочие tree-sitter-языки
+# (java/c/cpp/cs/php/ruby) деградируют в oracle-only.
+_CW_LANGS = {".go", ".rs"}
+
+_BUILTINS = {
+    ".go": frozenset({
+        "make", "len", "cap", "append", "copy", "delete", "new", "panic", "recover",
+        "print", "println", "close", "complex", "real", "imag", "min", "max", "clear",
+        "nil", "true", "false", "iota",
+        "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32",
+        "uint64", "uintptr", "float32", "float64", "complex64", "complex128",
+        "string", "bool", "byte", "rune", "error", "any", "comparable",
+    }),
+    ".rs": frozenset({
+        "drop", "Some", "None", "Ok", "Err", "Box", "Vec", "String", "Option", "Result",
+        "true", "false",
+    }),
+}
+
+
 class TreeSitterAdapter:
     """Адаптер на основе tree-sitter для широкой языковой поддержки (Go, Rust, Java, C++ и др.)."""
 
@@ -102,6 +125,9 @@ class TreeSitterAdapter:
             return ParseResult()
 
         symbols = []
+        refs = []
+        defined = []
+        imports = []
 
         def _name(node) -> str:
             return text_bytes[_v(node.start_byte):_v(node.end_byte)].decode("utf-8", errors="replace")
@@ -115,6 +141,62 @@ class TreeSitterAdapter:
                 "span_start": _start_row(span_node) + 1,
                 "span_end": _end_row(span_node) + 1,
             })
+
+        def _idents(node, out, depth=0):
+            """Собрать тексты всех identifier-узлов поддерева (для defined)."""
+            if node is None or depth > 6:
+                return
+            if _kind(node) == "identifier":
+                out.append(_name(node))
+                return
+            for ch in _named_children(node):
+                _idents(ch, out, depth + 1)
+
+        def _collect_cw(node, nt):
+            """Консервативный сбор refs/defined/imports для closed-world (Go/Rust).
+
+            refs — ТОЛЬКО bare-вызовы (callee — простой identifier); member/qualified
+            (selector/field/scoped) и макросы не являются identifier → автоматически
+            отсеиваются. defined собираем щедро (over-collect = лишь false-negative).
+            """
+            if nt == "call_expression":
+                callee = node.child_by_field_name("function")
+                if callee is not None and _kind(callee) == "identifier":
+                    refs.append({"name": _name(callee), "file": rel,
+                                 "line": _start_row(callee) + 1})
+
+            nm = node.child_by_field_name("name")
+            if nm is not None and _kind(nm) == "identifier":
+                defined.append(_name(nm))
+
+            if suffix == ".go":
+                if nt == "parameter_declaration":
+                    _idents(node, defined)
+                elif nt in ("short_var_declaration", "assignment_statement",
+                            "range_clause"):
+                    _idents(node.child_by_field_name("left"), defined)
+                elif nt in ("var_spec", "const_spec"):
+                    for ch in _named_children(node):
+                        if _kind(ch) == "identifier":
+                            defined.append(_name(ch))
+                elif nt == "import_spec":
+                    alias = node.child_by_field_name("name")
+                    path = node.child_by_field_name("path")
+                    if alias is not None:
+                        imports.append({"module": _name(alias), "names": [], "file": rel})
+                    elif path is not None:
+                        pkg = _name(path).strip('"').rsplit("/", 1)[-1]
+                        imports.append({"module": pkg, "names": [], "file": rel})
+            elif suffix == ".rs":
+                if nt in ("parameter", "closure_parameters"):
+                    _idents(node, defined)
+                elif nt == "let_declaration":
+                    _idents(node.child_by_field_name("pattern"), defined)
+                elif nt == "for_expression":
+                    _idents(node.child_by_field_name("pattern"), defined)
+                elif nt == "use_declaration":
+                    # bare-вызываемые импортированные имена → в defined (safe)
+                    _idents(node, defined)
 
         def traverse(node):
             nt = _kind(node)
@@ -180,11 +262,19 @@ class TreeSitterAdapter:
                 elif nt in ("function_definition", "method_declaration"):
                     _add(node.child_by_field_name("name"), node, "func")
 
+            if suffix in _CW_LANGS:
+                _collect_cw(node, nt)
+
             for ch in _children(node):
                 traverse(ch)
 
         root = _v(tree.root_node)
         traverse(root)
-        # refs/imports/defined пока не извлекаются для tree-sitter-языков:
-        # closed_world деградирует до oracle-only (безопасно), dep-closure не видит кросс-файл.
+
+        if suffix in _CW_LANGS:
+            # builtins языка кладём в defined (closed_world читает их как локально
+            # разрешимые); refs = только bare-вызовы. Прочие языки — oracle-only.
+            defined = sorted(set(defined) | _BUILTINS.get(suffix, frozenset()))
+            return ParseResult(symbols=symbols, imports=imports, refs=refs,
+                               defined=defined)
         return ParseResult(symbols=symbols, imports=[], refs=[], defined=[])
