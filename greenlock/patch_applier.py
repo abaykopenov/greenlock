@@ -47,7 +47,8 @@ def create_sandbox_dir(root: Path) -> Path:
     def ignore_func(path, names):
         ignored = []
         for name in names:
-            if name in ignore_dirs:
+            full_path = os.path.join(path, name)
+            if name in ignore_dirs or os.path.islink(full_path):
                 ignored.append(name)
         return ignored
 

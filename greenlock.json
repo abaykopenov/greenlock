@@ -1,0 +1,4 @@
+{
+  "verifier": "pytest",
+  "test_command": "python3 -m pytest --ignore=tests/test_isolate.py"
+}

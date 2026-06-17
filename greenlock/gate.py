@@ -189,10 +189,52 @@ def verify_patch(repo, diff_text: str, *, base_url: str | None = None,
         clean_sandbox_dir(sandbox)
 
 
+def init_git_hook(repo_dir: str) -> int:
+    """Установить pre-commit git хук в указанном репозитории."""
+    import stat
+    path = Path(repo_dir).resolve()
+    git_dir = path / ".git"
+    if not git_dir.is_dir():
+        print(f"❌ Ошибка: {repo_dir} не является корнем Git-репозитория (папка .git не найдена)")
+        return 1
+
+    hooks_dir = git_dir / "hooks"
+    hooks_dir.mkdir(exist_ok=True)
+    hook_file = hooks_dir / "pre-commit"
+
+    hook_content = """#!/bin/sh
+# Greenlock pre-commit gate hook
+# Сгенерировано автоматически через: greenlock init
+
+# Запуск проверки перед коммитом. Передаем индексированный дифф на stdin.
+git diff --cached --binary | python3 -m greenlock.gate . -
+
+if [ $? -ne 0 ]; then
+    echo "🛑 Greenlock: коммит отклонён из-за ошибок верификации."
+    exit 1
+fi
+"""
+
+    try:
+        hook_file.write_text(hook_content, encoding="utf-8")
+        st = hook_file.stat()
+        hook_file.chmod(st.st_mode | stat.S_IEXEC)
+        print(f"✅ Git pre-commit хук успешно установлен: {hook_file}")
+        return 0
+    except Exception as e:
+        print(f"❌ Не удалось записать файл хука: {e}")
+        return 1
+
+
 def main() -> int:
     import argparse
     import json
     import sys
+
+    if len(sys.argv) > 1 and sys.argv[1] == "init":
+        repo_dir = sys.argv[2] if len(sys.argv) > 2 else "."
+        return init_git_hook(repo_dir)
+
     ap = argparse.ArgumentParser(
         description="verify-only gate: внешний unified-diff → вердикт merge|reject")
     ap.add_argument("repo", help="путь к репозиторию (любому)")

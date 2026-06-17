@@ -102,7 +102,23 @@ class PytestVerifier:
 
         try:
             # Лимит времени 30 секунд для предотвращения бесконечных циклов
+            import os
             from greenlock.adapters.docker_wrapper import is_docker_enabled, run_in_docker
+            
+            repo_dir = None
+            if changed:
+                first_parts = Path(changed[0]).parts
+                if first_parts:
+                    repo_dir = workdir / first_parts[0]
+            if not repo_dir:
+                subdirs = [p for p in workdir.iterdir() if p.is_dir() and not p.name.startswith(".")]
+                if subdirs:
+                    repo_dir = subdirs[0]
+
+            env = os.environ.copy()
+            if repo_dir:
+                env["PYTHONPATH"] = str(repo_dir) + (os.pathsep + env.get("PYTHONPATH", "") if env.get("PYTHONPATH") else "")
+
             if is_docker_enabled():
                 if "python" in cmd[0] or ".venv" in cmd[0]:
                     cmd[0] = "python3"
@@ -111,6 +127,7 @@ class PytestVerifier:
                 proc = subprocess.run(
                     cmd,
                     cwd=str(workdir),
+                    env=env,
                     capture_output=True,
                     text=True,
                     timeout=30
@@ -194,6 +211,14 @@ class PytestVerifier:
                 "--ignore=.groundqa_sandbox"
             ]
         try:
+            import os
+            subdirs = [p for p in workdir.iterdir() if p.is_dir() and not p.name.startswith(".")]
+            repo_dir = subdirs[0] if subdirs else None
+
+            env = os.environ.copy()
+            if repo_dir:
+                env["PYTHONPATH"] = str(repo_dir) + (os.pathsep + env.get("PYTHONPATH", "") if env.get("PYTHONPATH") else "")
+
             from greenlock.adapters.docker_wrapper import is_docker_enabled, run_in_docker
             if is_docker_enabled():
                 if "python" in cmd[0] or ".venv" in cmd[0]:
@@ -203,6 +228,7 @@ class PytestVerifier:
                 proc = subprocess.run(
                     cmd,
                     cwd=str(workdir),
+                    env=env,
                     capture_output=True,
                     text=True,
                     timeout=30
