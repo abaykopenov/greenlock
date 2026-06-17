@@ -23,3 +23,6 @@ repos/openegiz
 # --- OS / редактор ---
 .DS_Store
 .claude/settings.local.json
+
+# внутренний документ дизайна — держим локально
+DESIGN.md
