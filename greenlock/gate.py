@@ -76,11 +76,16 @@ def _apply_diff(repo_dir: Path, diff_text: str) -> str | None:
             pass
 
 
-def verify_patch(repo, diff_text: str, *, base_url: str | None = None) -> dict:
+def verify_patch(repo, diff_text: str, *, base_url: str | None = None,
+                 extra_tests: dict | None = None) -> dict:
     """Проверить внешний unified-diff против репо. Вернуть вердикт-словарь.
 
     Ключи: decision (merge|reject), reasons[], changed_files[], closed_world[],
     failing_stage, regression, confidence, test_output.
+
+    extra_tests — {rel-путь: содержимое} дополнительных тест-файлов (например
+    характеризационных от greenlock.testgen). Кладутся в песочницу ДО снятия
+    baseline, поэтому участвуют в оракуле наравне с родным сетом.
     """
     base_url = base_url or OLLAMA_URL
     repo_path = Path(repo).resolve()
@@ -103,6 +108,11 @@ def verify_patch(repo, diff_text: str, *, base_url: str | None = None) -> dict:
     sandbox = create_sandbox_dir(repo_path)
     try:
         repo_copy = sandbox / repo_path.name
+        # дополнительные тесты (характеризация) — ДО baseline, чтобы войти в оракул
+        for rel, content in (extra_tests or {}).items():
+            p = repo_copy / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(content, encoding="utf-8")
         verifier = detect_verifier(sandbox)
         baseline = verifier.capture_baseline(sandbox)
 
