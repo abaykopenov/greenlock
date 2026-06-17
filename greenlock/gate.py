@@ -190,13 +190,66 @@ def verify_patch(repo, diff_text: str, *, base_url: str | None = None,
 
 
 def init_git_hook(repo_dir: str) -> int:
-    """Установить pre-commit git хук в указанном репозитории."""
+    """Установить pre-commit git хук и интерактивно настроить greenlock.json в репозитории."""
     import stat
+    import json
+    import sys
     path = Path(repo_dir).resolve()
     git_dir = path / ".git"
     if not git_dir.is_dir():
         print(f"❌ Ошибка: {repo_dir} не является корнем Git-репозитория (папка .git не найдена)")
         return 1
+
+    if sys.stdin.isatty():
+        print("=== Инициализация Greenlock ===")
+        cfg_path = path / "greenlock.json"
+        write_cfg = True
+        if cfg_path.exists():
+            ans = input("Файл greenlock.json уже существует. Перезаписать его? (y/N): ").strip().lower()
+            if ans not in ("y", "yes"):
+                write_cfg = False
+                print("Пропускаем создание greenlock.json.")
+
+        if write_cfg:
+            config_data = {}
+            print("\nВыберите тип верификатора:")
+            print("  1) pytest (Python)")
+            print("  2) node (Node.js)")
+            print("  3) go (Go)")
+            print("  4) rust (Rust)")
+            print("  5) custom (Пользовательские команды)")
+            verifier_opt = input("Введите номер [1-5] или Enter для автоопределения: ").strip()
+
+            verifier_map = {
+                "1": "pytest",
+                "2": "node",
+                "3": "go",
+                "4": "rust",
+                "5": "custom"
+            }
+            v_type = verifier_map.get(verifier_opt)
+            if v_type:
+                config_data["verifier"] = v_type
+                if v_type == "custom":
+                    cmd_syntax = input("Введите команду проверки синтаксиса (например, 'node --check main.js'): ").strip()
+                    if cmd_syntax:
+                        config_data["syntax_command"] = cmd_syntax
+                    cmd_test = input("Введите команду тестирования (например, 'npm test'): ").strip()
+                    if cmd_test:
+                        config_data["test_command"] = cmd_test
+                else:
+                    cmd_test = input(f"Введите команду тестирования для {v_type} (или Enter для дефолтной): ").strip()
+                    if cmd_test:
+                        config_data["test_command"] = cmd_test
+
+            if config_data:
+                try:
+                    cfg_path.write_text(json.dumps(config_data, indent=2, ensure_ascii=False), encoding="utf-8")
+                    print(f"✅ Файл конфигурации успешно создан: {cfg_path}")
+                except Exception as e:
+                    print(f"❌ Не удалось записать greenlock.json: {e}")
+            else:
+                print("Конфигурация не выбрана (оставляем автоматическое определение).")
 
     hooks_dir = git_dir / "hooks"
     hooks_dir.mkdir(exist_ok=True)

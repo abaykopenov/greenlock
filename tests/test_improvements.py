@@ -130,6 +130,47 @@ def test_gate_main_init_hook(tmp_path):
     assert hook_file.exists()
 
 
+def test_init_git_hook_interactive_pytest(tmp_path):
+    git_dir = tmp_path / ".git"
+    git_dir.mkdir()
+
+    inputs = ["1", "pytest --maxfail=1"]
+
+    with patch("sys.stdin.isatty", return_value=True):
+        with patch("builtins.input", side_effect=inputs):
+            code = init_git_hook(str(tmp_path))
+            assert code == 0
+
+    cfg_path = tmp_path / "greenlock.json"
+    assert cfg_path.exists()
+    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+    assert cfg == {
+        "verifier": "pytest",
+        "test_command": "pytest --maxfail=1"
+    }
+
+
+def test_init_git_hook_interactive_custom(tmp_path):
+    git_dir = tmp_path / ".git"
+    git_dir.mkdir()
+
+    inputs = ["5", "node --check main.js", "npm test"]
+
+    with patch("sys.stdin.isatty", return_value=True):
+        with patch("builtins.input", side_effect=inputs):
+            code = init_git_hook(str(tmp_path))
+            assert code == 0
+
+    cfg_path = tmp_path / "greenlock.json"
+    assert cfg_path.exists()
+    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+    assert cfg == {
+        "verifier": "custom",
+        "syntax_command": "node --check main.js",
+        "test_command": "npm test"
+    }
+
+
 def test_docker_wrapper_helpers():
     # Test is_docker_enabled
     with patch("greenlock.adapters.docker_wrapper.DOCKER", "1"):
