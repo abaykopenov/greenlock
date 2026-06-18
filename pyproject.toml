@@ -42,3 +42,11 @@ greenlock-mcp = "greenlock.mcp_server:main"
 
 [tool.setuptools.packages.find]
 include = ["greenlock*"]
+
+[tool.pytest.ini_options]
+# Юнит-тесты проекта живут в tests/. Бенч-фикстуры (repos/, benchmarks/) гоняет
+# отдельный harness (python -m benchmarks.run_bench), а НЕ корневой pytest — иначе
+# repos/bench_pricing/test_pricing.py падает на импорте при сборе из корня.
+# norecursedirs матчит по basename, поэтому отсекает эти каталоги и внутри песочницы
+# гейта (сбор идёт из CWD песочницы) — это и чинит Greenlock-на-Greenlock.
+norecursedirs = ["repos", "benchmarks", "sample_project", ".*", "build", "dist", "node_modules", "*.egg", "venv"]
