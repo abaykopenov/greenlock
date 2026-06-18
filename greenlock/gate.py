@@ -19,7 +19,7 @@ from pathlib import Path
 
 from greenlock import groundqa as g
 from greenlock import isolate
-from greenlock.config import OLLAMA_URL, DOCKER, DOCKER_IMAGE
+from greenlock.config import OLLAMA_URL, DOCKER, DOCKER_IMAGE, TRUST
 from greenlock.adapters import detect_verifier, detect_adapters
 from greenlock.closed_world import closed_world_check
 from greenlock.danger import scan_file
@@ -122,7 +122,7 @@ def _apply_diff(repo_dir: Path, diff_text: str) -> str | None:
 
 
 def verify_patch(repo, diff_text: str, *, base_url: str | None = None,
-                 extra_tests: dict | None = None) -> dict:
+                 extra_tests: dict | None = None, trust: bool = False) -> dict:
     """Проверить внешний unified-diff против репо. Вернуть вердикт-словарь.
 
     Ключи: decision (merge|reject), reasons[], changed_files[], closed_world[],
@@ -131,6 +131,10 @@ def verify_patch(repo, diff_text: str, *, base_url: str | None = None,
     extra_tests — {rel-путь: содержимое} дополнительных тест-файлов (например
     характеризационных от greenlock.testgen). Кладутся в песочницу ДО снятия
     baseline, поэтому участвуют в оракуле наравне с родным сетом.
+
+    trust — доверенный автор (WS-3): danger-конструкции (eval/exec/subprocess/…) НЕ
+    блокируют, а лишь сообщаются. Для self-CI/догфудинга над собственным кодом, где
+    такие конструкции легитимны. По умолчанию False — danger-защита включена.
     """
     base_url = base_url or OLLAMA_URL
     repo_path = Path(repo).resolve()
@@ -228,10 +232,15 @@ def verify_patch(repo, diff_text: str, *, base_url: str | None = None,
                 danger.append(f"{rel}: {tag}")
         if danger:
             verdict["danger"] = danger[:20]
+            if not trust:
+                verdict["reasons"].append(
+                    "danger: патч вносит опасные/обфусцирующие конструкции "
+                    f"({', '.join(danger[:6])}) — отказ (не исполнялось)")
+                return verdict
+            # trusted-режим (WS-3): danger остаётся как ИНФОРМАЦИЯ, но не блокирует —
+            # решает оракул. Защита от злонамеренного автора в этом режиме отключена.
             verdict["reasons"].append(
-                "danger: патч вносит опасные/обфусцирующие конструкции "
-                f"({', '.join(danger[:6])}) — отказ (не исполнялось)")
-            return verdict
+                "danger (trusted, НЕ блокирует): " + ", ".join(danger[:6]))
 
         # оракул: синтаксис → тесты → регрессия vs baseline
         changed_for_verify = [str(Path(repo_path.name) / rel) for rel in changed]
@@ -389,13 +398,21 @@ def main() -> int:
         "--image", default=None,
         help=f"Docker-образ для изоляции (дефолт {isolate.DEFAULT_IMAGE} или "
              "GREENLOCK_DOCKER_IMAGE)")
+    ap.add_argument(
+        "--trust", dest="trust", action="store_true", default=None,
+        help="доверенный автор: danger-конструкции (eval/subprocess/…) НЕ блокируют, "
+             "лишь сообщаются. Дефолт берётся из GREENLOCK_TRUST/greenlock.json")
+    ap.add_argument(
+        "--no-trust", dest="trust", action="store_false",
+        help="принудительно включить danger-защиту (даже если trust в конфиге)")
     a = ap.parse_args()
 
     diff_text = sys.stdin.read() if a.diff == "-" else \
         Path(a.diff).read_text(encoding="utf-8")
 
-    # Изоляция: явный флаг важнее конфига; None = не задано → берём GREENLOCK_DOCKER.
+    # Явный флаг важнее конфига; None = не задано → берём из env/greenlock.json.
     isolated = a.isolated if a.isolated is not None else _truthy(DOCKER)
+    trust = a.trust if a.trust is not None else _truthy(TRUST)
     if isolated:
         image = a.image or DOCKER_IMAGE or isolate.DEFAULT_IMAGE
         try:
@@ -408,7 +425,7 @@ def main() -> int:
                  "failing_stage": None, "regression": False,
                  "confidence": None, "test_output": ""}
     else:
-        v = verify_patch(a.repo, diff_text)
+        v = verify_patch(a.repo, diff_text, trust=trust)
 
     if a.json:
         print(json.dumps(v, ensure_ascii=False, indent=2))

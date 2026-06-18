@@ -103,3 +103,21 @@ def test_gate_allows_clean_patch():
     v = verify_patch(str(REPO), d, extra_tests=extra)
     assert v["decision"] == "merge", (v["reasons"], v["danger"])
     assert not v["danger"]
+
+
+def test_trust_mode_makes_danger_advisory(tmp_path):
+    """WS-3: доверенный автор — danger-конструкция обнаруживается, но НЕ блокирует
+    (для self-CI/догфудинга над собственным инфра-кодом)."""
+    src = _base().replace(
+        'TAX_RATE = Decimal("0.0875")\n',
+        'TAX_RATE = Decimal("0.0875")\n_DBG = eval("1")\n')
+    d = _diff(src)
+    # дефолт: danger-защита включена → блокирует
+    v0 = verify_patch(str(REPO), d)
+    assert v0["decision"] == "reject"
+    assert any("отказ (не исполнялось)" in r for r in v0["reasons"])
+    # trust: danger обнаружен, но не блокирует — решает оракул
+    v1 = verify_patch(str(REPO), d, trust=True)
+    assert any("eval" in t for t in v1["danger"])
+    assert not any("отказ (не исполнялось)" in r for r in v1["reasons"])
+    assert v1["decision"] == "merge", (v1["reasons"], v1["danger"])

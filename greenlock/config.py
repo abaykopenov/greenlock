@@ -45,3 +45,6 @@ GEMINI_KEY_PATH = Path(get("gemini_key", "GREENLOCK_GEMINI_KEY", str(ROOT / ".ge
 SANDBOX_DIR = get("sandbox_dir", "GREENLOCK_SANDBOX_DIR", "")
 DOCKER = get("docker", "GREENLOCK_DOCKER", "")  # "1" or "true" = enabled
 DOCKER_IMAGE = get("docker_image", "GREENLOCK_DOCKER_IMAGE", "")  # default docker image
+# Доверенный автор: danger-конструкции (eval/exec/subprocess/...) НЕ блокируют, а лишь
+# сообщаются. Для self-CI/догфудинга над собственным кодом. Дефолт — выкл (защита вкл).
+TRUST = get("trust", "GREENLOCK_TRUST", "")  # "1"/"true" = доверенный режим

@@ -184,6 +184,7 @@ characterization `testgen`, the web UI, an MCP server, and a CI Action all work 
       false positives); other languages stay oracle-only until validated.
 - [x] **danger-check** — rejects patches that introduce `eval`/`exec`/`os.system`/
       `subprocess`/test-environment detection, *before* the oracle runs (see [SECURITY.md](SECURITY.md)).
+      `--trust` / `GREENLOCK_TRUST` makes it advisory (non-blocking) for trusted authors / self-CI.
 - [x] **execution isolation** — opt-in `--isolated` (or `GREENLOCK_DOCKER=1`) runs the
       *whole gate* inside a locked Docker container (`--network none`, read-only rootfs,
       non-root, dropped caps, CPU/mem/PID limits, repo mounted read-only), **fail-closed**
