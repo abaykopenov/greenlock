@@ -47,6 +47,7 @@ def docker_run_argv(repo_path: Path, image: str, *, memory: str, cpus: str,
         "--cap-drop", "ALL",
         "--security-opt", "no-new-privileges",
         "-e", "GREENLOCK_SANDBOX_DIR=/tmp/gl-sandbox",
+        "-e", "GREENLOCK_DOCKER=0",                 # внутри уже изолированы — без вложенного Docker
         "-e", "HOME=/tmp",
         "-e", "PYTHONDONTWRITEBYTECODE=1",
         "-v", f"{repo_path}:{mount}:ro",           # анализируемый репо — только чтение

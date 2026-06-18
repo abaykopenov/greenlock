@@ -78,6 +78,23 @@ python3 -m greenlock.gate path/to/repo my_change.diff --json
 
 Exit code is `0` on MERGE, `1` on REJECT — drop it straight into a CI step or pre-merge hook.
 
+#### Run the gate in isolation (untrusted code)
+
+The verifier **executes the repo's tests**, so for untrusted patches run the *whole gate*
+inside a locked, throwaway Docker container — `--network none`, read-only rootfs, non-root,
+all caps dropped, CPU/mem/PID limits, repo mounted read-only. Even an RCE in a test is
+trapped in the container.
+
+```bash
+docker build -t greenlock:latest .                          # build the image once
+git diff | python3 -m greenlock.gate path/to/repo - --isolated
+```
+
+`--isolated` is **fail-closed**: if Docker isn't available it rejects (never silently
+downgrades to the unsafe path). Turn it on by default with `GREENLOCK_DOCKER=1`
+(or `"docker": "1"` in `greenlock.json`); override the image via `--image` /
+`GREENLOCK_DOCKER_IMAGE`; force it off for a single run with `--no-isolated`.
+
 ### Configuration
 
 All settings resolve as **env var → `greenlock.local.json` → default**. The OSS default
@@ -167,8 +184,10 @@ characterization `testgen`, the web UI, an MCP server, and a CI Action all work 
       false positives); other languages stay oracle-only until validated.
 - [x] **danger-check** — rejects patches that introduce `eval`/`exec`/`os.system`/
       `subprocess`/test-environment detection, *before* the oracle runs (see [SECURITY.md](SECURITY.md)).
-- [ ] **execution isolation** (opt-in Docker/VM: network-off, read-only, non-root) —
-      the real fix for untrusted-code RCE.
+- [x] **execution isolation** — opt-in `--isolated` (or `GREENLOCK_DOCKER=1`) runs the
+      *whole gate* inside a locked Docker container (`--network none`, read-only rootfs,
+      non-root, dropped caps, CPU/mem/PID limits, repo mounted read-only), **fail-closed**
+      if Docker is unavailable. The real fix for untrusted-code RCE.
 - [ ] more tree-sitter languages; PyPI release; dashboard; on-prem packaging.
 
 ## Security

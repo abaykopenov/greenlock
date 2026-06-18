@@ -18,7 +18,8 @@ import tempfile
 from pathlib import Path
 
 from greenlock import groundqa as g
-from greenlock.config import OLLAMA_URL
+from greenlock import isolate
+from greenlock.config import OLLAMA_URL, DOCKER, DOCKER_IMAGE
 from greenlock.adapters import detect_verifier
 from greenlock.closed_world import closed_world_check
 from greenlock.danger import scan_file
@@ -26,6 +27,11 @@ from greenlock.patch_applier import create_sandbox_dir, clean_sandbox_dir
 from greenlock.code_writer import truncate_error_output
 
 __all__ = ["verify_patch"]
+
+
+def _truthy(v: str) -> bool:
+    """Истинность переключателя из env/конфига ('1'/'true'/'yes'/'on')."""
+    return str(v).strip().lower() in ("1", "true", "yes", "on")
 
 
 def _changed_files(diff_text: str) -> list[str]:
@@ -293,17 +299,45 @@ def main() -> int:
     ap.add_argument("repo", help="путь к репозиторию (любому)")
     ap.add_argument("diff", help="файл с unified-diff ('-' = stdin)")
     ap.add_argument("--json", action="store_true", help="вывести вердикт как JSON")
+    ap.add_argument(
+        "--isolated", dest="isolated", action="store_true", default=None,
+        help="прогнать весь гейт в Docker-изоляции (--network none, read-only, "
+             "non-root, лимиты); дефолт берётся из GREENLOCK_DOCKER/greenlock.json")
+    ap.add_argument(
+        "--no-isolated", dest="isolated", action="store_false",
+        help="принудительно без изоляции (даже если включена в конфиге)")
+    ap.add_argument(
+        "--image", default=None,
+        help=f"Docker-образ для изоляции (дефолт {isolate.DEFAULT_IMAGE} или "
+             "GREENLOCK_DOCKER_IMAGE)")
     a = ap.parse_args()
 
     diff_text = sys.stdin.read() if a.diff == "-" else \
         Path(a.diff).read_text(encoding="utf-8")
-    v = verify_patch(a.repo, diff_text)
+
+    # Изоляция: явный флаг важнее конфига; None = не задано → берём GREENLOCK_DOCKER.
+    isolated = a.isolated if a.isolated is not None else _truthy(DOCKER)
+    if isolated:
+        image = a.image or DOCKER_IMAGE or isolate.DEFAULT_IMAGE
+        try:
+            v = isolate.verify_patch_isolated(a.repo, diff_text, image=image)
+        except RuntimeError as e:
+            # Изоляция запрошена явно, но Docker недоступен — fail-closed:
+            # молча откатываться на небезопасный путь нельзя.
+            v = {"decision": "reject", "isolated": True, "reasons": [str(e)],
+                 "changed_files": [], "closed_world": [], "danger": [],
+                 "failing_stage": None, "regression": False,
+                 "confidence": None, "test_output": ""}
+    else:
+        v = verify_patch(a.repo, diff_text)
 
     if a.json:
         print(json.dumps(v, ensure_ascii=False, indent=2))
         return 0 if v["decision"] == "merge" else 1
 
-    print(("✅ MERGE" if v["decision"] == "merge" else "🛑 REJECT") + f"  ({a.repo})")
+    suffix = " [isolated]" if v.get("isolated") else ""
+    print(("✅ MERGE" if v["decision"] == "merge" else "🛑 REJECT")
+          + f"  ({a.repo}){suffix}")
     print("изменённые файлы:", ", ".join(v["changed_files"]) or "—")
     for r in v["reasons"]:
         print("  •", r)
