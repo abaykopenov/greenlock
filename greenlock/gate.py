@@ -20,7 +20,7 @@ from pathlib import Path
 from greenlock import groundqa as g
 from greenlock import isolate
 from greenlock.config import OLLAMA_URL, DOCKER, DOCKER_IMAGE
-from greenlock.adapters import detect_verifier
+from greenlock.adapters import detect_verifier, detect_adapters
 from greenlock.closed_world import closed_world_check
 from greenlock.danger import scan_file
 from greenlock.patch_applier import create_sandbox_dir, clean_sandbox_dir
@@ -149,7 +149,6 @@ def verify_patch(repo, diff_text: str, *, base_url: str | None = None,
         return verdict
     verdict["changed_files"] = changed
 
-    index = g.build_index(repo_path)
     sandbox = create_sandbox_dir(repo_path)
     try:
         repo_copy = sandbox / repo_path.name
@@ -186,6 +185,27 @@ def verify_patch(repo, diff_text: str, *, base_url: str | None = None,
         if err:
             verdict["reasons"].append(f"диф не применился к репо: {err[:300]}")
             return verdict
+
+        # Индекс символов из РЕАЛЬНОГО репо (песочница отбрасывается SKIP_DIRS,
+        # т.к. лежит под .groundqa_sandbox). WS-4: дополняем его символами из
+        # ПРОПАТЧЕННЫХ изменённых файлов — иначе символы, введённые патчем, считались
+        # бы «несуществующими» (ложный closed-world reject на многофайловых правках).
+        index = g.build_index(repo_path)
+        syms = index.setdefault("symbols", {})
+        _adapters = detect_adapters()
+        for rel in changed:
+            ab = repo_copy / rel
+            if not ab.exists():
+                continue
+            ad = next((a for a in _adapters if ab.suffix in a.extensions), None)
+            if not ad:
+                continue
+            try:
+                pres = ad.parse(rel, ab.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            for sym in pres.symbols:
+                syms.setdefault(sym["name"], []).append((sym["file"], sym["line"]))
 
         # closed-world: запрет ссылок на несуществующие символы
         cw: list[str] = []

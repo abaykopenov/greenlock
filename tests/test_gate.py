@@ -75,3 +75,27 @@ def test_closed_world_violation_rejected():
 def test_empty_diff_rejected():
     v = verify_patch(str(REPO), "")
     assert v["decision"] == "reject"
+
+
+def test_ws4_new_symbol_resolved_from_patched_index(tmp_path):
+    """WS-4: символ, добавленный патчем и использованный через `from a import *`
+    (wildcard трекинг импортов не видит), не должен считаться «несуществующим».
+    Это требует индекса ПОПАТЧЕННОЙ песочницы, а не репо до патча."""
+    a0 = "def old():\n    return 1\n"
+    b0 = "from a import *\n\n\ndef run():\n    return old()\n"
+    (tmp_path / "a.py").write_text(a0, encoding="utf-8")
+    (tmp_path / "b.py").write_text(b0, encoding="utf-8")
+    (tmp_path / "test_b.py").write_text(
+        "from b import run\ndef test_run():\n    assert run() == 3\n", encoding="utf-8")
+
+    a1 = "def old():\n    return 1\n\n\ndef new_util():\n    return 2\n"
+    b1 = "from a import *\n\n\ndef run():\n    return old() + new_util()\n"
+    diff = ("".join(difflib.unified_diff(a0.splitlines(keepends=True),
+                                         a1.splitlines(keepends=True),
+                                         fromfile="a/a.py", tofile="b/a.py"))
+            + "".join(difflib.unified_diff(b0.splitlines(keepends=True),
+                                           b1.splitlines(keepends=True),
+                                           fromfile="a/b.py", tofile="b/b.py")))
+    v = verify_patch(str(tmp_path), diff)
+    assert v["closed_world"] == [], v["closed_world"]   # new_util не «несуществующий»
+    assert v["decision"] == "merge", v["reasons"]
