@@ -84,6 +84,34 @@ def test_gate_cli_config_default_and_no_isolated_override(tmp_path, monkeypatch)
     assert called["isolated"] is False
 
 
+# --- WS-5: MCP уважает strong-изоляцию так же, как CLI (единый ключ GREENLOCK_DOCKER) ---
+
+def test_mcp_routes_to_strong_isolation_when_docker_enabled(tmp_path, monkeypatch):
+    import greenlock.config as cfg
+    from greenlock import mcp_server
+    monkeypatch.setattr(cfg, "DOCKER", "1")
+    seen = {}
+
+    def fake(repo, diff, *, image=isolate.DEFAULT_IMAGE, **kw):
+        seen["repo"] = repo
+        return dict(_MERGE)
+
+    monkeypatch.setattr(isolate, "verify_patch_isolated", fake)
+    out = mcp_server.verify_patch(str(tmp_path), "--- a/x\n+++ b/x\n")
+    assert seen.get("repo") == str(tmp_path) and out.get("isolated") is True
+
+
+def test_mcp_plain_when_docker_disabled(tmp_path, monkeypatch):
+    import greenlock.config as cfg
+    from greenlock import mcp_server
+    monkeypatch.setattr(cfg, "DOCKER", "")
+    seen = {}
+    monkeypatch.setattr(gate, "verify_patch",
+                        lambda *a, **k: seen.setdefault("plain", True) or dict(_MERGE))
+    mcp_server.verify_patch(str(tmp_path), "--- a/x\n+++ b/x\n")
+    assert seen.get("plain") is True
+
+
 def test_extract_json():
     assert isolate._extract_json('{"a": 1}') == {"a": 1}
     assert isolate._extract_json('noise\n{"a": 2}\n')["a"] == 2

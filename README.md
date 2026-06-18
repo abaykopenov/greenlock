@@ -94,6 +94,9 @@ git diff | python3 -m greenlock.gate path/to/repo - --isolated
 downgrades to the unsafe path). Turn it on by default with `GREENLOCK_DOCKER=1`
 (or `"docker": "1"` in `greenlock.json`); override the image via `--image` /
 `GREENLOCK_DOCKER_IMAGE`; force it off for a single run with `--no-isolated`.
+`GREENLOCK_DOCKER` drives the same strong isolation everywhere (CLI **and** the MCP
+server). A separate, weaker per-command runner (test command in an official language
+image) is opt-in via `GREENLOCK_VERIFIER_DOCKER` — distinct so the two never collide.
 
 ### Configuration
 

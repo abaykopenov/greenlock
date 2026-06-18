@@ -1,10 +1,12 @@
 import os
 import subprocess
 from pathlib import Path
-from greenlock.config import DOCKER, DOCKER_IMAGE
+from greenlock.config import VERIFIER_DOCKER, DOCKER_IMAGE
 
 def is_docker_enabled() -> bool:
-    return DOCKER.lower() in ("1", "true", "yes")
+    # WEAK per-command изоляция управляется ОТДЕЛЬНЫМ ключом GREENLOCK_VERIFIER_DOCKER
+    # (WS-5): GREENLOCK_DOCKER теперь означает только STRONG whole-gate изоляцию.
+    return VERIFIER_DOCKER.lower() in ("1", "true", "yes")
 
 def get_default_image(verifier_name: str) -> str:
     if DOCKER_IMAGE:

@@ -172,12 +172,12 @@ def test_init_git_hook_interactive_custom(tmp_path):
 
 
 def test_docker_wrapper_helpers():
-    # Test is_docker_enabled
-    with patch("greenlock.adapters.docker_wrapper.DOCKER", "1"):
+    # is_docker_enabled управляется отдельным ключом VERIFIER_DOCKER (WS-5)
+    with patch("greenlock.adapters.docker_wrapper.VERIFIER_DOCKER", "1"):
         assert is_docker_enabled() is True
-    with patch("greenlock.adapters.docker_wrapper.DOCKER", "true"):
+    with patch("greenlock.adapters.docker_wrapper.VERIFIER_DOCKER", "true"):
         assert is_docker_enabled() is True
-    with patch("greenlock.adapters.docker_wrapper.DOCKER", ""):
+    with patch("greenlock.adapters.docker_wrapper.VERIFIER_DOCKER", ""):
         assert is_docker_enabled() is False
 
     # Test get_default_image

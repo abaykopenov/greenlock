@@ -43,8 +43,13 @@ GEMINI_KEY_PATH = Path(get("gemini_key", "GREENLOCK_GEMINI_KEY", str(ROOT / ".ge
 # База для песочниц. Пусто = рядом с проектом (.groundqa_sandbox). В read-only
 # контейнере указывает на writable tmpfs (напр. /tmp/gl-sandbox).
 SANDBOX_DIR = get("sandbox_dir", "GREENLOCK_SANDBOX_DIR", "")
-DOCKER = get("docker", "GREENLOCK_DOCKER", "")  # "1" or "true" = enabled
-DOCKER_IMAGE = get("docker_image", "GREENLOCK_DOCKER_IMAGE", "")  # default docker image
+# STRONG изоляция: весь гейт в одном запертом контейнере (isolate.py). Управляет
+# и CLI (--isolated), и MCP-сервером — единая семантика.
+DOCKER = get("docker", "GREENLOCK_DOCKER", "")  # "1" or "true" = enabled (strong)
+DOCKER_IMAGE = get("docker_image", "GREENLOCK_DOCKER_IMAGE", "")  # образ для strong
+# WEAK per-command изоляция (adapters/docker_wrapper): только команда теста в
+# официальном образе языка. ОТДЕЛЬНЫЙ ключ (WS-5) — чтобы не путать со strong.
+VERIFIER_DOCKER = get("verifier_docker", "GREENLOCK_VERIFIER_DOCKER", "")
 # Доверенный автор: danger-конструкции (eval/exec/subprocess/...) НЕ блокируют, а лишь
 # сообщаются. Для self-CI/догфудинга над собственным кодом. Дефолт — выкл (защита вкл).
 TRUST = get("trust", "GREENLOCK_TRUST", "")  # "1"/"true" = доверенный режим

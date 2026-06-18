@@ -20,6 +20,19 @@ def verify_patch(repo: str, diff: str) -> dict:
 
     repo — путь к репозиторию; diff — текст unified-diff (как `git diff`).
     """
+    from greenlock.config import DOCKER, DOCKER_IMAGE
+    # STRONG изоляция (WS-5): MCP уважает GREENLOCK_DOCKER так же, как CLI --isolated,
+    # — иначе один ключ значил бы у них разное. Fail-closed при недоступном Docker.
+    if str(DOCKER).strip().lower() in ("1", "true", "yes", "on"):
+        from greenlock import isolate
+        try:
+            return isolate.verify_patch_isolated(
+                repo, diff, image=DOCKER_IMAGE or isolate.DEFAULT_IMAGE)
+        except RuntimeError as e:
+            return {"decision": "reject", "isolated": True, "reasons": [str(e)],
+                    "changed_files": [], "closed_world": [], "danger": [],
+                    "failing_stage": None, "regression": False,
+                    "confidence": None, "test_output": ""}
     from greenlock.gate import verify_patch as _impl
     return _impl(repo, diff)
 
