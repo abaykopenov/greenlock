@@ -49,6 +49,44 @@ def _changed_files(diff_text: str) -> list[str]:
     return seen
 
 
+def _changed_lines(diff_text: str) -> dict[str, set[int]]:
+    """Новые (added) номера строк по файлам из unified-diff (сторона '+').
+
+    Нужно для проверки покрытия: исполняются ли тестами именно изменённые строки.
+    """
+    result: dict[str, set[int]] = {}
+    cur: str | None = None
+    new_ln = 0
+    for line in diff_text.splitlines():
+        if line.startswith("+++ "):
+            p = line[4:].strip().split("\t")[0]
+            if p == "/dev/null":
+                cur = None
+            else:
+                if p.startswith(("a/", "b/")):
+                    p = p[2:]
+                cur = p
+                result.setdefault(cur, set())
+            continue
+        if line.startswith("@@"):
+            try:
+                plus = line.split("+", 1)[1]
+                new_ln = int(plus.split(",")[0].split(" ")[0])
+            except (IndexError, ValueError):
+                new_ln = 0
+            continue
+        if cur is None or new_ln == 0:
+            continue
+        if line.startswith("+"):
+            result[cur].add(new_ln)
+            new_ln += 1
+        elif line.startswith(("-", "\\")):
+            pass  # удалённая строка / "No newline" — новая сторона не двигается
+        else:
+            new_ln += 1  # контекст
+    return result
+
+
 def _apply_diff(repo_dir: Path, diff_text: str) -> str | None:
     """Применить unified-diff в repo_dir. None = успех, иначе текст ошибки.
 
@@ -125,7 +163,18 @@ def verify_patch(repo, diff_text: str, *, base_url: str | None = None,
         # (напр. Node для Python-проекта с .js-артефактами). Прогон тестов —
         # по-прежнему из sandbox (рекурсивное обнаружение).
         verifier = detect_verifier(repo_copy)
-        baseline = verifier.capture_baseline(sandbox)
+        # изменённые строки (сторона +) → verifier для проверки покрытия патча
+        cl = _changed_lines(diff_text)
+        verifier.changed_lines = {
+            str(Path(repo_path.name) / rel): lns for rel, lns in cl.items()
+        }
+        try:
+            baseline = verifier.capture_baseline(sandbox)
+        except Exception as e:
+            # провал = отказ, а не краш (DESIGN §6)
+            verdict["reasons"].append(
+                f"не удалось снять baseline оракула — отказ: {str(e)[:300]}")
+            return verdict
 
         # baseline-содержимое изменённых файлов (до диффа) — для danger-диффа
         baseline_src = {}
@@ -166,7 +215,12 @@ def verify_patch(repo, diff_text: str, *, base_url: str | None = None,
 
         # оракул: синтаксис → тесты → регрессия vs baseline
         changed_for_verify = [str(Path(repo_path.name) / rel) for rel in changed]
-        res = verifier.verify(sandbox, changed_for_verify, baseline=baseline)
+        try:
+            res = verifier.verify(sandbox, changed_for_verify, baseline=baseline)
+        except Exception as e:
+            verdict["reasons"].append(
+                f"оракул упал при проверке — отказ: {str(e)[:300]}")
+            return verdict
         verdict["confidence"] = res.get("confidence")
         verdict["regression"] = bool(res.get("regression"))
 
@@ -185,8 +239,13 @@ def verify_patch(repo, diff_text: str, *, base_url: str | None = None,
                 + " — отказ")
         elif res.get("confidence") != "full":
             verdict["failing_stage"] = "coverage"
+            # пробрасываем детали (какие файлы не покрыты) — иначе вердикт «немой»
+            tstage = next((s for s in res.get("stages", [])
+                           if s.get("name") == "tests"), None)
+            if tstage:
+                verdict["test_output"] = truncate_error_output(tstage.get("output", ""))
             verdict["reasons"].append(
-                "нет тестов, покрывающих изменение (confidence=degraded) — "
+                "изменённые строки не исполняются тестами (confidence=degraded) — "
                 "гарантию дать нельзя; нужен слой генерации тестов (testgen) — отказ")
         else:
             verdict["reasons"].append("оракул не дал полной уверенности — отказ")

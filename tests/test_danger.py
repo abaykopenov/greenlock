@@ -94,5 +94,12 @@ def test_gate_allows_clean_patch():
     d = "".join(difflib.unified_diff(
         _base().splitlines(keepends=True), lines,
         fromfile="a/pricing.py", tofile="b/pricing.py"))
-    v = verify_patch(str(REPO), d)
+    # тест на новый метод → правка покрыта, чтобы вердикт определялся danger-стадией,
+    # а не покрытием (WS-1): чистый + покрытый патч обязан мержиться без danger-флагов
+    extra = {"test_item_count_gl.py":
+             "from bench_pricing.pricing import Cart\n"
+             "def test_item_count_gl():\n"
+             "    assert Cart().item_count() == 0\n"}
+    v = verify_patch(str(REPO), d, extra_tests=extra)
     assert v["decision"] == "merge", (v["reasons"], v["danger"])
+    assert not v["danger"]

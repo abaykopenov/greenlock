@@ -28,9 +28,30 @@ def _add_method(lines):
     return lines
 
 
+# тест, который РЕАЛЬНО исполняет добавленный метод item_count (даёт покрытие)
+_EXTRA_ITEM_COUNT = {
+    "test_item_count_gl.py":
+        "from bench_pricing.pricing import Cart\n"
+        "def test_item_count_gl():\n"
+        "    c = Cart()\n"
+        "    assert c.item_count() == 0\n"
+        "    c.add_item('x', '1.00', 3)\n"
+        "    assert c.item_count() == 3\n"
+}
+
+
 def test_good_change_merges():
-    v = verify_patch(str(REPO), _diff(_add_method))
+    """Покрытая правка (новый метод + тест, который его исполняет) → merge."""
+    v = verify_patch(str(REPO), _diff(_add_method), extra_tests=_EXTRA_ITEM_COUNT)
     assert v["decision"] == "merge", v["reasons"]
+
+
+def test_uncovered_change_degraded():
+    """Тот же новый метод, но БЕЗ теста на него → честный degraded-reject (WS-1):
+    нельзя ручаться за код, который тесты не исполняют."""
+    v = verify_patch(str(REPO), _diff(_add_method))
+    assert v["decision"] == "reject"
+    assert v["confidence"] == "degraded", v["reasons"]
 
 
 def test_behavior_regression_rejected():

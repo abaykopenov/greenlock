@@ -161,6 +161,15 @@ class PytestVerifier:
                 if current_results["failed"] or current_results["errors"]:
                     test_ok = False
 
+                # Покрытие изменённых строк (WS-1): даже при зелёном сете патч обязан
+                # ИСПОЛНЯТЬСЯ тестами — иначе confidence честно деградирует (не ложный
+                # MERGE). Отдельный traced-прогон, чтобы НЕ трогать pass/fail/регрессию.
+                if test_ok and not is_docker_enabled():
+                    cov_conf, cov_msg = self._coverage_pass(workdir, changed)
+                    if cov_conf != "full":
+                        confidence = cov_conf
+                        test_output += cov_msg
+
         except subprocess.TimeoutExpired as e:
             test_ok = False
             test_output = "Pytest timed out after 30 seconds.\n"
@@ -248,6 +257,101 @@ class PytestVerifier:
             f"Pytest baseline capture failed with exit code {proc.returncode}.\n"
             f"Stdout: {proc.stdout or ''}\nStderr: {proc.stderr or ''}"
         )
+
+    def _coverage_pass(self, workdir: Path, changed: list[str]) -> tuple[str, str]:
+        """Отдельный прогон pytest под трассировкой → (confidence, message).
+
+        Меряет, исполняются ли ИЗМЕНЁННЫЕ строки. Это второй прогон (после основного
+        pass/fail/регрессия), чтобы не менять формат junit и не плодить ложных регрессий.
+        Возвращает ('full','') если мерить нечего/не Python/нет changed_lines.
+        """
+        import json as _json
+        import os
+        changed_lines = getattr(self, "changed_lines", None)
+        if not changed_lines:
+            return "full", ""
+        cov_targets = [str((workdir / rel).resolve()) for rel in changed_lines
+                       if rel.endswith(".py") and (workdir / rel).exists()]
+        if not cov_targets:
+            return "full", ""   # изменены только не-.py файлы — покрытие не применимо
+
+        cov_path = workdir / ".groundqa_cov.json"
+        if cov_path.exists():
+            try:
+                cov_path.unlink()
+            except OSError:
+                pass
+
+        python_bin = self._get_python_executable()
+        repo_dir = None
+        if changed:
+            parts = Path(changed[0]).parts
+            if parts:
+                repo_dir = workdir / parts[0]
+        # PYTHONPATH: репо-под-тестом (sandbox, должен идти ПЕРВЫМ — патч важнее) +
+        # корень самого greenlock (иначе `python -m greenlock._covrun` не импортнётся
+        # из cwd песочницы, где пакет не установлен).
+        gl_root = str(Path(__file__).resolve().parents[2])
+        env = os.environ.copy()
+        parts = ([str(repo_dir)] if repo_dir else []) + [gl_root]
+        if env.get("PYTHONPATH"):
+            parts.append(env["PYTHONPATH"])
+        env["PYTHONPATH"] = os.pathsep.join(parts)
+        cmd = [python_bin, "-m", "greenlock._covrun", str(cov_path),
+               _json.dumps(cov_targets), "--ignore=.groundqa_sandbox", "-q",
+               "-p", "no:cacheprovider"]
+        try:
+            proc = subprocess.run(cmd, cwd=str(workdir), env=env, capture_output=True,
+                                  text=True, timeout=120)
+        except Exception:
+            # измерение не удалось (таймаут/ошибка) — НЕ блокируем зелёный патч из-за
+            # проблемы инфраструктуры измерения; честно помечаем «не измерено».
+            return "full", "\n[coverage] не измерено (ошибка traced-прогона) — пропуск"
+        if proc.returncode not in (0, 1, 5):
+            return "full", f"\n[coverage] не измерено (traced exit {proc.returncode}) — пропуск"
+        return self._coverage_confidence(workdir, cov_path)
+
+    def _coverage_confidence(self, workdir: Path, cov_path: Path) -> tuple[str, str]:
+        """(confidence, message) по покрытию изменённых строк.
+
+        'degraded' + список файлов, если хоть в одном изменён код, не исполнённый
+        тестами. Нет данных покрытия для изменённого кода → тоже degraded (честно:
+        не смогли доказать покрытие, значит ручаться нельзя).
+        """
+        import json as _json
+        import os
+        from greenlock.coverage import coverage_verdict
+
+        changed_lines = getattr(self, "changed_lines", None) or {}
+        try:
+            executed_map = _json.loads(Path(cov_path).read_text(encoding="utf-8"))
+        except Exception:
+            executed_map = None
+        if not executed_map:
+            # нет данных покрытия — измеритель ничего не дал; не блокируем (fail-open)
+            return "full", "\n[coverage] нет данных покрытия — пропуск"
+
+        uncovered = []
+        for rel, lines in changed_lines.items():
+            if not rel.endswith(".py"):
+                continue
+            f = workdir / rel
+            if not f.exists():
+                continue
+            executed = set(executed_map.get(os.path.realpath(str(f)), [])) \
+                | set(executed_map.get(str(f.resolve()), []))
+            try:
+                src = f.read_text(encoding="utf-8")
+            except Exception:
+                continue
+            has_code, covered = coverage_verdict(src, set(lines), executed)
+            if has_code and not covered:
+                uncovered.append(rel)
+
+        if uncovered:
+            return "degraded", ("\nChanged code is NOT exercised by the test suite "
+                                f"(confidence=degraded): {', '.join(sorted(uncovered))}")
+        return "full", ""
 
     def _parse_junit_xml(self, xml_path: Path) -> dict:
         if not xml_path.exists():

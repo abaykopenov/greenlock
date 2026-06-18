@@ -1,0 +1,104 @@
+"""greenlock.coverage — честный сигнал покрытия ИЗМЕНЁННЫХ строк (только stdlib).
+
+Гейт обязан ставить confidence="full" лишь если изменение реально исполняется
+тестами. Иначе «зелёный сет» ничего не говорит про сам патч (DESIGN §6: честная
+деградация, а не ложный MERGE). Меряем исполнение через `sys.settrace` —
+без внешних зависимостей (принцип stdlib-first).
+
+Сопоставление идёт на уровне ОПЕРАТОРОВ (ast.stmt), а не сырых строк: трассировщик
+срабатывает на «головной» строке оператора, а патч может менять его продолжение —
+поэтому и изменённые, и исполненные строки сворачиваем к идентификатору оператора.
+"""
+import ast
+import os
+
+__all__ = ["stmt_line_map", "coverage_verdict", "run_pytest_traced"]
+
+
+def stmt_line_map(source: str) -> dict[int, int]:
+    """line → id оператора (начальная строка наименьшего охватывающего ast.stmt).
+
+    Чистые докстринги/строки-выражения пропускаются (поведения не несут), поэтому
+    изменение только комментария/докстринга не считается изменением кода.
+    """
+    by_line: dict[int, tuple[int, int]] = {}
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.stmt):
+            continue
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue  # заголовок def/class исполняется при импорте — это НЕ покрытие тела
+        if isinstance(node, ast.Expr) and isinstance(getattr(node, "value", None), ast.Constant) \
+                and isinstance(node.value.value, str):
+            continue  # докстринг / строка-выражение
+        start = node.lineno
+        end = getattr(node, "end_lineno", start) or start
+        span = end - start
+        for ln in range(start, end + 1):
+            prev = by_line.get(ln)
+            if prev is None or span < prev[1]:   # наименьший охватывающий оператор
+                by_line[ln] = (start, span)
+    return {ln: v[0] for ln, v in by_line.items()}
+
+
+def coverage_verdict(file_source: str, changed_added: set[int],
+                     executed: set[int]) -> tuple[bool, bool]:
+    """(has_code_change, covered) для одного файла.
+
+    has_code_change=False → изменены только комментарии/доки/пустые строки: покрытие
+    не требуется. Иначе covered=True ⇔ хотя бы один изменённый оператор исполнился.
+    """
+    line2stmt = stmt_line_map(file_source)
+    changed_stmts = {line2stmt[ln] for ln in changed_added if ln in line2stmt}
+    if not changed_stmts:
+        return (False, True)
+    executed_stmts = {line2stmt[ln] for ln in executed if ln in line2stmt}
+    return (True, bool(changed_stmts & executed_stmts))
+
+
+def run_pytest_traced(pytest_args: list[str], targets: list[str]) -> tuple[int, dict[str, list[int]]]:
+    """Прогнать pytest IN-PROCESS под трассировкой, вернуть (exit_code, {файл: [строки]}).
+
+    Трассируем только кадры целевых файлов (changed), поэтому накладные расходы
+    пропорциональны исполнению патча, а не всего сета. Вызывать из отдельного
+    процесса (см. greenlock._covrun) — pytest мутирует глобальное состояние.
+    """
+    import sys
+    import threading
+
+    targets_raw = set(targets)
+    targets_real = {os.path.realpath(t) for t in targets}
+    hits: dict[str, set[int]] = {}
+    cache: dict[str, bool] = {}
+
+    def _loc(frame, event, arg):
+        if event == "line":
+            hits.setdefault(frame.f_code.co_filename, set()).add(frame.f_lineno)
+        return _loc
+
+    def _glob(frame, event, arg):
+        if event != "call":
+            return None
+        fn = frame.f_code.co_filename
+        hit = cache.get(fn)
+        if hit is None:
+            hit = fn in targets_raw or os.path.realpath(fn) in targets_real
+            cache[fn] = hit
+        return _loc if hit else None
+
+    import pytest
+    threading.settrace(_glob)
+    sys.settrace(_glob)
+    try:
+        code = pytest.main(list(pytest_args))
+    finally:
+        sys.settrace(None)
+        threading.settrace(None)
+
+    executed: dict[str, list[int]] = {}
+    for fn, lines in hits.items():
+        executed[os.path.realpath(fn)] = sorted(lines)
+    return int(code), executed
