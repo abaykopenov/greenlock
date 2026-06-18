@@ -20,6 +20,9 @@ node_modules/
 # --- сторонние тестовые репо (чужой код, свой .git) ---
 repos/openegiz
 
+# --- self-referential dev-симлинк (greenlock на самом себе) — рекурсия ---
+repos/greenlock_dev
+
 # --- OS / редактор ---
 .DS_Store
 .claude/settings.local.json
