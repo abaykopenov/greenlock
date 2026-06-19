@@ -11,8 +11,18 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/); versions
   - `greenlock gate <repo> <diff>` — verify a unified diff (`--apply` applies it iff MERGE);
   - `greenlock check [repo]` — gate your git changes with no manual diff (`--staged`,
     `--against <ref>`);
+  - `greenlock doctor [repo]` — report what Greenlock can verify here (languages, oracle,
+    toolchains, Docker, coverage backends, expected confidence);
   - `greenlock harden`, `greenlock init`, `greenlock mcp`, `greenlock --version`.
   The module forms (`python -m greenlock.gate …`) still work.
+- **Actionable REJECT hints** — the CLI now prints how to fix a rejection (run
+  `greenlock harden` for missing coverage, `--trust` for danger, etc.).
+- **GitHub Action posts the verdict** — writes a job summary and, on reject, a PR comment
+  with the reason (`comment: "false"` to disable; needs `pull-requests: write`).
+- **`pre-commit` framework support** — `.pre-commit-hooks.yaml` so repos can add Greenlock
+  to `.pre-commit-config.yaml` (runs `greenlock check --staged`).
+- **PyPI publishing** — `publish.yml` builds and publishes via PyPI Trusted Publishing
+  on release; once live, `pip install greenlock` provides the `greenlock` command.
 - **Coverage-based confidence across supported languages** (WS-1 multi-language).
   `confidence=full` now requires changed lines to be exercised by the suite, per language:
   - **JavaScript** — built-in V8 coverage (`NODE_V8_COVERAGE`); a line counts only if the

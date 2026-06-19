@@ -1,0 +1,17 @@
+# Greenlock как хук для фреймворка pre-commit (https://pre-commit.com).
+#
+# В целевом репозитории добавь в .pre-commit-config.yaml:
+#   - repo: https://github.com/abaykopenov/greenlock
+#     rev: v0.1.0
+#     hooks:
+#       - id: greenlock
+# pre-commit сам установит пакет (даёт команду `greenlock`) и прогонит гейт по
+# staged-изменениям перед коммитом; не-зелёная правка блокирует коммит.
+- id: greenlock
+  name: greenlock gate (staged changes)
+  description: Apply-only-if-green gate over staged changes (closed-world + tests + regression).
+  entry: greenlock check --staged
+  language: python
+  pass_filenames: false
+  always_run: true
+  stages: [pre-commit]

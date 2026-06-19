@@ -62,10 +62,14 @@ Requirements: **Python 3.10+**. For the *generate* mode and the web UI you also 
 [Ollama](https://ollama.com) endpoint; the *gate-only* mode needs neither.
 
 ```bash
-git clone <your-fork-url> greenlock && cd greenlock
+pip install greenlock              # once published to PyPI → gives the `greenlock` command
+# or from source:
+git clone https://github.com/abaykopenov/greenlock && cd greenlock
 pip install -e .            # core (pure stdlib)
 pip install -e ".[all]"     # + tree-sitter (more languages) + certifi (cloud HTTPS)
 ```
+
+After install, run `greenlock doctor` in your repo to see what it can verify.
 
 ### Gate a diff (no model needed)
 
@@ -145,12 +149,29 @@ generate_characterization_tests("path/to/repo", "module.py")   # → golden-mast
 harden_and_verify("path/to/repo", open("change.diff").read())  # gate + auto safety net
 ```
 
+### Pre-commit hook
+
+Block non-green commits locally. Either `greenlock init` (writes a raw git pre-commit
+hook), or via the [pre-commit](https://pre-commit.com) framework — add to your
+`.pre-commit-config.yaml`:
+
+```yaml
+repos:
+  - repo: https://github.com/abaykopenov/greenlock
+    rev: v0.1.0
+    hooks:
+      - id: greenlock        # runs `greenlock check --staged` before each commit
+```
+
 ### Use it as a CI gate (GitHub Action)
 
 Block any PR that breaks green. In the consuming repo's workflow:
 
 ```yaml
 on: pull_request
+permissions:
+  contents: read
+  pull-requests: write          # so Greenlock can post the verdict as a PR comment
 jobs:
   greenlock:
     runs-on: ubuntu-latest
@@ -163,7 +184,9 @@ jobs:
       - uses: abaykopenov/greenlock@v0.1.0   # the gate: merge or block (pin to a release)
 ```
 
-The step exits non-zero on **reject**, so with branch protection the PR can't merge.
+The step exits non-zero on **reject**, so with branch protection the PR can't merge. It
+also writes a job summary and (on reject) posts the verdict + reason as a PR comment
+(needs `pull-requests: write`; disable with `comment: "false"`).
 
 ### Use it from an AI agent (MCP)
 

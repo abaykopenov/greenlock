@@ -1,0 +1,32 @@
+name: publish
+
+# Сборка и публикация в PyPI. Использует PyPI Trusted Publishing (OIDC) — без токенов.
+# Срабатывает при публикации GitHub Release (тег вида v*), либо вручную.
+#
+# ОДНОРАЗОВАЯ настройка на стороне PyPI (делает владелец проекта):
+#   PyPI → проект greenlock → Publishing → Add a trusted publisher:
+#     owner=abaykopenov, repo=greenlock, workflow=publish.yml, environment=pypi
+#   (для самого первого релиза — через "pending publisher" до создания проекта).
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write          # требуется для Trusted Publishing
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Build sdist + wheel
+        run: |
+          python -m pip install --upgrade build
+          python -m build
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

@@ -2,7 +2,7 @@ name: "Greenlock verify-gate"
 description: >
   Deterministic apply-only-if-green gate on a pull request's diff: closed-world
   check + your own test suite + regression vs base. Fails the check (blocks the PR)
-  unless the change keeps everything green.
+  unless the change keeps everything green, and posts the reason to the PR.
 branding:
   icon: "shield"
   color: "green"
@@ -16,6 +16,10 @@ inputs:
     description: "Greenlock git ref to install."
     required: false
     default: "main"
+  comment:
+    description: "Post the verdict as a PR comment on reject (needs pull-requests: write)."
+    required: false
+    default: "true"
 
 runs:
   using: "composite"
@@ -29,8 +33,12 @@ runs:
       env:
         BASE_SHA: ${{ github.event.pull_request.base.sha }}
         HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        COMMENT: ${{ inputs.comment }}
       run: |
-        set -euo pipefail
+        set -uo pipefail
         if [ -z "${BASE_SHA:-}" ]; then
           echo "Not a pull_request event — nothing to gate."
           exit 0
@@ -39,4 +47,37 @@ runs:
         # gate verifies "base + diff" (it re-runs your suite as the baseline).
         git diff "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/greenlock.diff"
         git checkout -q "$BASE_SHA"
-        python -m greenlock.gate "${{ inputs.repo-path }}" "$RUNNER_TEMP/greenlock.diff"
+
+        set +e
+        python -m greenlock.gate "${{ inputs.repo-path }}" "$RUNNER_TEMP/greenlock.diff" --json \
+          > "$RUNNER_TEMP/verdict.json"
+        code=$?
+        set -e
+
+        # Render a markdown summary from the JSON verdict.
+        python - "$RUNNER_TEMP/verdict.json" > "$RUNNER_TEMP/summary.md" <<'PY'
+        import json, sys
+        try:
+            v = json.load(open(sys.argv[1]))
+        except Exception:
+            v = {"decision": "reject", "reasons": ["no verdict produced"]}
+        merge = v.get("decision") == "merge"
+        out = [f"## Greenlock: {'✅ MERGE' if merge else '🛑 REJECT'}"]
+        out.append(f"\n**Changed files:** {', '.join(v.get('changed_files') or []) or '—'}")
+        if v.get("reasons"):
+            out.append("\n**Reasons:**")
+            out += [f"- {r}" for r in v["reasons"]]
+        for e in (v.get("closed_world") or [])[:10]:
+            out.append(f"- closed-world: `{e}`")
+        if v.get("test_output"):
+            tail = v["test_output"][-2000:]
+            out.append("\n<details><summary>oracle output (tail)</summary>\n\n```\n"
+                       + tail + "\n```\n</details>")
+        print("\n".join(out))
+        PY
+
+        cat "$RUNNER_TEMP/summary.md" >> "$GITHUB_STEP_SUMMARY" || true
+        if [ "$code" != "0" ] && [ "${COMMENT:-true}" = "true" ] && [ -n "${PR_NUMBER:-}" ]; then
+          gh pr comment "$PR_NUMBER" --repo "$GH_REPO" --body-file "$RUNNER_TEMP/summary.md" || true
+        fi
+        exit $code
