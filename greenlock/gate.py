@@ -373,6 +373,30 @@ fi
         return 1
 
 
+def _hints(v: dict) -> list[str]:
+    """Подсказки «как починить» по полям вердикта (показываются при reject)."""
+    hints: list[str] = []
+    stage = v.get("failing_stage")
+    reasons = " ".join(v.get("reasons", []))
+    if stage == "coverage":
+        hints.append("изменённый код не исполняется тестами — сгенерируй сетку: "
+                     "`greenlock harden <repo> <diff>` (или добавь тест на изменение).")
+    if v.get("closed_world"):
+        hints.append("ссылки на неизвестные имена (опечатка / нет импорта) — см. 'cw:' выше.")
+    if v.get("danger") and stage is None and "не исполнялось" in reasons:
+        hints.append("danger-конструкции заблокированы; если ты доверенный автор и это "
+                     "намеренно — повтори с `--trust` (или GREENLOCK_TRUST=1).")
+    if v.get("regression"):
+        hints.append("патч ломает существующие тесты (регрессия) — см. вывод оракула выше.")
+    if "не применился" in reasons:
+        hints.append("diff не применился — он должен быть против ТЕКУЩЕГО состояния репо "
+                     "(проверь через `greenlock check`, который сам берёт `git diff`).")
+    if "Docker" in reasons:
+        hints.append("изоляция запрошена, но Docker недоступен — собери образ "
+                     "(`docker build -t greenlock:latest .`) или сними `--isolated`.")
+    return hints
+
+
 def run_verdict(repo, diff_text: str, *, isolated=None, image=None, trust=None,
                 as_json: bool = False) -> int:
     """Прогнать гейт и напечатать вердикт; вернуть exit-код (0=merge, 1=reject).
@@ -413,6 +437,9 @@ def run_verdict(repo, diff_text: str, *, isolated=None, image=None, trust=None,
     if v.get("test_output"):
         print("  вывод оракула (хвост):")
         print("    " + v["test_output"].replace("\n", "\n    "))
+    if v["decision"] != "merge":
+        for h in _hints(v):
+            print("  → как починить:", h)
     return 0 if v["decision"] == "merge" else 1
 
 

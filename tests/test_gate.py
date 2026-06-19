@@ -77,6 +77,17 @@ def test_empty_diff_rejected():
     assert v["decision"] == "reject"
 
 
+def test_hints_suggest_fixes():
+    from greenlock.gate import _hints
+    assert any("harden" in h for h in
+               _hints({"failing_stage": "coverage", "reasons": [], "decision": "reject"}))
+    assert any("trust" in h for h in _hints(
+        {"danger": ["x: subprocess.run"], "failing_stage": None,
+         "reasons": ["danger … — отказ (не исполнялось)"], "decision": "reject"}))
+    assert any("регресс" in h.lower() for h in
+               _hints({"regression": True, "reasons": [], "decision": "reject"}))
+
+
 def test_ws4_new_symbol_resolved_from_patched_index(tmp_path):
     """WS-4: символ, добавленный патчем и использованный через `from a import *`
     (wildcard трекинг импортов не видит), не должен считаться «несуществующим».

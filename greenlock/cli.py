@@ -96,6 +96,9 @@ def main(argv=None) -> int:
     i = sub.add_parser("init", help="настроить greenlock.json + git pre-commit хук")
     i.add_argument("repo", nargs="?", default=".")
 
+    d = sub.add_parser("doctor", help="что Greenlock сможет проверить в этом репо")
+    d.add_argument("repo", nargs="?", default=".")
+
     sub.add_parser("mcp", help="запустить MCP-сервер (stdio)")
 
     a = ap.parse_args(argv)
@@ -134,6 +137,10 @@ def main(argv=None) -> int:
     if a.cmd == "init":
         from greenlock.gate import init_git_hook
         return init_git_hook(a.repo)
+
+    if a.cmd == "doctor":
+        from greenlock.doctor import main as doctor_main
+        return doctor_main(a.repo)
 
     if a.cmd == "mcp":
         from greenlock.mcp_server import main as mcp_main

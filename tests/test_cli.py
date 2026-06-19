@@ -57,3 +57,10 @@ def test_init_dispatches(monkeypatch):
     monkeypatch.setattr(gate, "init_git_hook", lambda repo: seen.update(repo=repo) or 0)
     assert cli.main(["init", "somerepo"]) == 0
     assert seen["repo"] == "somerepo"
+
+
+def test_doctor_dispatches(monkeypatch, capsys):
+    from greenlock import doctor
+    monkeypatch.setattr(doctor, "main", lambda repo=".": print("DOCTOR " + repo) or 0)
+    assert cli.main(["doctor", "myrepo"]) == 0
+    assert "DOCTOR myrepo" in capsys.readouterr().out
