@@ -128,6 +128,14 @@ class NodeVerifier:
                 # Проверка наличия упавших тестов в текущем запуске
                 if current_results["failed"] or current_results["errors"]:
                     test_ok = False
+
+                # Покрытие изменённых строк (WS-1, JS): даже при зелёном сете патч
+                # обязан исполняться тестами — иначе confidence честно деградирует.
+                if test_ok and not is_docker_enabled():
+                    cov_conf, cov_msg = self._coverage_pass(workdir, changed)
+                    if cov_conf != "full":
+                        confidence = cov_conf
+                        test_output += cov_msg
             else:
                 confidence = "degraded"
                 test_ok = False
@@ -206,6 +214,49 @@ class NodeVerifier:
             f"Node baseline capture failed with exit code {proc.returncode}.\n"
             f"Stdout: {proc.stdout or ''}\nStderr: {proc.stderr or ''}"
         )
+
+    def _coverage_pass(self, workdir: Path, changed: list[str]) -> tuple[str, str]:
+        """Отдельный прогон `node --test` под NODE_V8_COVERAGE → (confidence, message).
+
+        Меряет, исполняются ли ИЗМЕНЁННЫЕ .js-строки. Fail-open: если данных покрытия
+        нет (таймаут/нет файла) — не блокируем зелёный патч.
+        """
+        import os
+        import shutil
+        from greenlock.coverage import v8_executed_changed_lines
+
+        changed_lines = getattr(self, "changed_lines", None)
+        if not changed_lines:
+            return "full", ""
+        js = {rel: lns for rel, lns in changed_lines.items()
+              if rel.endswith(".js") and (workdir / rel).exists()}
+        if not js:
+            return "full", ""
+
+        cov_dir = workdir / ".gl_v8_cov"
+        shutil.rmtree(cov_dir, ignore_errors=True)
+        cov_dir.mkdir(exist_ok=True)
+        env = os.environ.copy()
+        env["NODE_V8_COVERAGE"] = str(cov_dir)
+        cmd = ["node", "--test"]
+        try:
+            subprocess.run(cmd, cwd=str(workdir), env=env, capture_output=True,
+                           text=True, timeout=120)
+        except Exception:
+            shutil.rmtree(cov_dir, ignore_errors=True)
+            return "full", "\n[coverage] node coverage run failed — пропуск"
+
+        uncovered = []
+        for rel, lns in js.items():
+            measured, executed = v8_executed_changed_lines(
+                str(cov_dir), str((workdir / rel).resolve()), set(lns))
+            if measured and not executed:
+                uncovered.append(rel)
+        shutil.rmtree(cov_dir, ignore_errors=True)
+        if uncovered:
+            return "degraded", ("\nChanged code is NOT exercised by the test suite "
+                                f"(confidence=degraded): {', '.join(sorted(uncovered))}")
+        return "full", ""
 
     def _parse_junit_xml(self, xml_path: Path) -> dict:
         if not xml_path.exists():

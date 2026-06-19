@@ -3,6 +3,17 @@
 All notable changes to Greenlock are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/); versions follow SemVer.
 
+## [Unreleased]
+
+### Added
+- **Coverage-based confidence for JavaScript** (WS-1 multi-language). The Node verifier
+  now measures whether changed `.js` lines are exercised by the suite via built-in V8
+  coverage (`NODE_V8_COVERAGE`, no new deps); untested JS changes degrade → reject
+  instead of a false MERGE. A changed line counts as executed only if the *tightest*
+  enclosing V8 range has `count > 0` (an unrun branch inside a called function is not
+  credited). Go/Rust/custom verifiers still follow the fail-open policy (coverage not
+  measured → never blocks a green patch).
+
 ## [0.1.0] — 2026-06-19
 
 First public alpha. A deterministic verify-gate for AI-generated code changes:

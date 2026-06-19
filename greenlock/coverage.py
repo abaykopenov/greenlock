@@ -12,7 +12,80 @@
 import ast
 import os
 
-__all__ = ["stmt_line_map", "coverage_verdict", "run_pytest_traced"]
+__all__ = ["stmt_line_map", "coverage_verdict", "run_pytest_traced",
+           "v8_executed_changed_lines"]
+
+
+def _line_offsets(src: str) -> list[int]:
+    """offs[k] = смещение (в символах) начала строки k+1 (1-based)."""
+    offs = [0]
+    for i, ch in enumerate(src):
+        if ch == "\n":
+            offs.append(i + 1)
+    return offs
+
+
+def v8_executed_changed_lines(cov_dir: str, target_path: str,
+                              changed_lines: set[int]) -> tuple[bool, set[int]]:
+    """Какие из changed_lines файла реально исполнились — по покрытию V8 (NODE_V8_COVERAGE).
+
+    Возвращает (measured, executed): measured=False, если для файла нет данных
+    покрытия (тогда вызывающий применяет fail-open). Строка считается исполненной,
+    если САМЫЙ УЗКИЙ V8-range, её покрывающий, имеет count>0 — так невыполненная
+    ветка внутри вызванной функции НЕ засчитывается (без over-report → без ложного MERGE).
+    """
+    import glob
+    import json
+    import os
+
+    real = os.path.realpath(target_path)
+    try:
+        src = open(target_path, encoding="utf-8").read()
+    except OSError:
+        return (False, set())
+    offs = _line_offsets(src)
+    src_lines = src.split("\n")
+
+    ranges: list[tuple[int, int, int]] = []
+    found = False
+    for jf in glob.glob(os.path.join(cov_dir, "*.json")):
+        try:
+            data = json.loads(open(jf, encoding="utf-8").read())
+        except Exception:
+            continue
+        for entry in data.get("result", []):
+            url = entry.get("url", "")
+            if url.startswith("file://"):
+                from urllib.parse import unquote, urlparse
+                p = unquote(urlparse(url).path)   # декодируем %20 и т.п. (пробелы в пути)
+            else:
+                p = url
+            if not p or os.path.realpath(p) != real:
+                continue
+            found = True
+            for fn in entry.get("functions", []):
+                for r in fn.get("ranges", []):
+                    ranges.append((r["startOffset"], r["endOffset"], r.get("count", 0)))
+    if not found:
+        return (False, set())
+
+    executed: set[int] = set()
+    for ln in changed_lines:
+        if ln < 1 or ln > len(src_lines):
+            continue
+        line = src_lines[ln - 1]
+        if not line.strip():
+            continue
+        off = offs[ln - 1] + (len(line) - len(line.lstrip()))  # первый значимый символ
+        best = None  # (size, count) самого узкого охватывающего range
+        for s, e, c in ranges:
+            if s <= off < e:
+                size = e - s
+                if best is None or size < best[0]:
+                    best = (size, c)
+        if best is not None and best[1] > 0:
+            executed.add(ln)
+    return (True, executed)
 
 
 def stmt_line_map(source: str) -> dict[int, int]:
