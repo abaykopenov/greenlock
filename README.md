@@ -150,7 +150,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.x" }
       - run: pip install -e .              # install YOUR test deps (oracle runs your suite)
-      - uses: abaykopenov/greenlock@main   # the gate: merge or block
+      - uses: abaykopenov/greenlock@v0.1.0   # the gate: merge or block (pin to a release)
 ```
 
 The step exits non-zero on **reject**, so with branch protection the PR can't merge.
