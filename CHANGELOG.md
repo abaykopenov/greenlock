@@ -6,13 +6,19 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/); versions
 ## [Unreleased]
 
 ### Added
-- **Coverage-based confidence for JavaScript** (WS-1 multi-language). The Node verifier
-  now measures whether changed `.js` lines are exercised by the suite via built-in V8
-  coverage (`NODE_V8_COVERAGE`, no new deps); untested JS changes degrade → reject
-  instead of a false MERGE. A changed line counts as executed only if the *tightest*
-  enclosing V8 range has `count > 0` (an unrun branch inside a called function is not
-  credited). Go/Rust/custom verifiers still follow the fail-open policy (coverage not
-  measured → never blocks a green patch).
+- **Coverage-based confidence across supported languages** (WS-1 multi-language).
+  `confidence=full` now requires changed lines to be exercised by the suite, per language:
+  - **JavaScript** — built-in V8 coverage (`NODE_V8_COVERAGE`); a line counts only if the
+    *tightest* enclosing V8 range has `count > 0`. *Validated end-to-end.*
+  - **Go** — `go test -coverprofile`; coverprofile blocks with `count > 0`.
+  - **Rust** — `cargo-llvm-cov --lcov` (cargo has no built-in line coverage); LCOV `DA:`.
+  - **Python** — stdlib `sys.settrace` (already shipped in 0.1.0).
+  Parsers (V8 / coverprofile / LCOV) are unit-tested. **Fail-open everywhere**: missing
+  toolchain, no profile, or no data for a file never blocks a green patch — coverage only
+  *degrades* on positive evidence that changed code wasn't executed. `custom` verifier
+  (arbitrary commands) has no generic coverage.
+  Note: Go/Rust integration is not yet validated against a live toolchain in CI (none
+  installed); the tested parsers + fail-open wiring make this safe (worst case: no-op).
 
 ## [0.1.0] — 2026-06-19
 

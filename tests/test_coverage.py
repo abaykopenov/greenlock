@@ -65,3 +65,25 @@ def test_v8_parser_distinguishes_covered_from_uncovered(tmp_path):
     measured, ex = v8_executed_changed_lines(str(covdir), str(f), {2, 5})
     assert measured
     assert 2 in ex and 5 not in ex
+
+
+def test_go_coverprofile_parser():
+    """Go coverprofile: блок count>0 → строки исполнены; count=0 → нет."""
+    from greenlock.coverage import go_cover_executed_lines
+    prof = ("mode: set\n"
+            "example.com/m/pkg/foo.go:10.2,12.16 2 1\n"   # исполнено 10–12
+            "example.com/m/pkg/foo.go:20.2,21.3 1 0\n")   # НЕ исполнено 20–21
+    cov = go_cover_executed_lines(prof)
+    name = "example.com/m/pkg/foo.go"
+    assert cov[name] == {10, 11, 12}
+    assert 20 not in cov[name] and 21 not in cov[name]
+
+
+def test_lcov_parser():
+    """LCOV (cargo-llvm-cov): DA:line,count с count>0 → исполнено."""
+    from greenlock.coverage import lcov_executed_lines
+    text = ("SF:/abs/src/lib.rs\nDA:3,1\nDA:4,0\nDA:5,2\nend_of_record\n"
+            "SF:/abs/src/other.rs\nDA:1,0\nend_of_record\n")
+    cov = lcov_executed_lines(text)
+    assert cov["/abs/src/lib.rs"] == {3, 5}
+    assert cov["/abs/src/other.rs"] == set()

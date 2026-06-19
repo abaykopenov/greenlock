@@ -13,7 +13,58 @@ import ast
 import os
 
 __all__ = ["stmt_line_map", "coverage_verdict", "run_pytest_traced",
-           "v8_executed_changed_lines"]
+           "v8_executed_changed_lines", "go_cover_executed_lines",
+           "lcov_executed_lines"]
+
+
+def go_cover_executed_lines(profile_text: str) -> dict[str, set[int]]:
+    """Go coverprofile (`go test -coverprofile`) → {имя_в_профиле: set(исполненных строк)}.
+
+    Строка профиля: `import/path/file.go:sl.sc,el.ec numStmts count`. Блок с count>0
+    помечает строки sl..el исполненными. Имя — import-path + файл (НЕ fs-rel),
+    сопоставление с изменённым файлом — по суффиксу на стороне вызывающего.
+    """
+    result: dict[str, set[int]] = {}
+    for raw in profile_text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("mode:"):
+            continue
+        try:
+            name, rest = line.split(":", 1)
+            block, _nstmt, count = rest.rsplit(" ", 2)
+            count = int(count)
+            start, end = block.split(",")
+            sl = int(start.split(".")[0])
+            el = int(end.split(".")[0])
+        except (ValueError, IndexError):
+            continue
+        if count > 0 and 1 <= sl <= el:
+            result.setdefault(name, set()).update(range(sl, el + 1))
+    return result
+
+
+def lcov_executed_lines(lcov_text: str) -> dict[str, set[int]]:
+    """LCOV (напр. `cargo-llvm-cov --lcov`) → {путь_файла: set(исполненных строк)}.
+
+    `SF:<file>` задаёт текущий файл; `DA:<line>,<count>` с count>0 → строка исполнена.
+    """
+    result: dict[str, set[int]] = {}
+    cur: str | None = None
+    for raw in lcov_text.splitlines():
+        line = raw.strip()
+        if line.startswith("SF:"):
+            cur = line[3:]
+            result.setdefault(cur, set())
+        elif line.startswith("DA:") and cur is not None:
+            try:
+                ln, cnt = line[3:].split(",")[:2]
+                if int(cnt) > 0:
+                    result[cur].add(int(ln))
+            except ValueError:
+                continue
+        elif line.startswith("end_of_record"):
+            cur = None
+    return result
 
 
 def _line_offsets(src: str) -> list[int]:
