@@ -71,10 +71,20 @@ pip install -e ".[all]"     # + tree-sitter (more languages) + certifi (cloud HT
 
 ```bash
 # verdict: MERGE or REJECT, with the reason
+greenlock gate path/to/repo my_change.diff          # unified CLI (after install)
+greenlock check                                     # gate your git changes — no manual diff
+greenlock check --staged                            # only staged changes
+greenlock check --against main                      # changes vs a ref/PR base
+greenlock gate path/to/repo my_change.diff --apply  # apply the patch iff MERGE
+greenlock gate path/to/repo my_change.diff --json
+
+# equivalent module form (no install needed):
 python3 -m greenlock.gate path/to/repo my_change.diff
-git diff | python3 -m greenlock.gate path/to/repo -        # or from stdin
-python3 -m greenlock.gate path/to/repo my_change.diff --json
+git diff | python3 -m greenlock.gate path/to/repo -
 ```
+
+`greenlock --version`, `greenlock init`, `greenlock harden`, and `greenlock mcp` are the
+other subcommands. Run `greenlock -h` for the full list.
 
 Exit code is `0` on MERGE, `1` on REJECT — drop it straight into a CI step or pre-merge hook.
 

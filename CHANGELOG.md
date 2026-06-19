@@ -6,6 +6,13 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/); versions
 ## [Unreleased]
 
 ### Added
+- **Unified `greenlock` CLI.** A single console command with subcommands instead of the
+  scattered `greenlock-gate`/`-mcp` scripts (and the README's non-existent `greenlock init`):
+  - `greenlock gate <repo> <diff>` — verify a unified diff (`--apply` applies it iff MERGE);
+  - `greenlock check [repo]` — gate your git changes with no manual diff (`--staged`,
+    `--against <ref>`);
+  - `greenlock harden`, `greenlock init`, `greenlock mcp`, `greenlock --version`.
+  The module forms (`python -m greenlock.gate …`) still work.
 - **Coverage-based confidence across supported languages** (WS-1 multi-language).
   `confidence=full` now requires changed lines to be exercised by the suite, per language:
   - **JavaScript** — built-in V8 coverage (`NODE_V8_COVERAGE`); a line counts only if the

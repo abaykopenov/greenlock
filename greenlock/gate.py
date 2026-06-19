@@ -373,6 +373,49 @@ fi
         return 1
 
 
+def run_verdict(repo, diff_text: str, *, isolated=None, image=None, trust=None,
+                as_json: bool = False) -> int:
+    """Прогнать гейт и напечатать вердикт; вернуть exit-код (0=merge, 1=reject).
+
+    Общая точка для CLI `greenlock gate`/`check` и `python -m greenlock.gate`.
+    isolated/trust: None → берётся из env/greenlock.json; image → --image/DOCKER_IMAGE.
+    """
+    import json
+    isolated_eff = isolated if isolated is not None else _truthy(DOCKER)
+    trust_eff = trust if trust is not None else _truthy(TRUST)
+    if isolated_eff:
+        img = image or DOCKER_IMAGE or isolate.DEFAULT_IMAGE
+        try:
+            v = isolate.verify_patch_isolated(repo, diff_text, image=img)
+        except RuntimeError as e:
+            # изоляция запрошена, но Docker недоступен — fail-closed, не откатываемся
+            v = {"decision": "reject", "isolated": True, "reasons": [str(e)],
+                 "changed_files": [], "closed_world": [], "danger": [],
+                 "failing_stage": None, "regression": False,
+                 "confidence": None, "test_output": ""}
+    else:
+        v = verify_patch(repo, diff_text, trust=trust_eff)
+
+    if as_json:
+        print(json.dumps(v, ensure_ascii=False, indent=2))
+        return 0 if v["decision"] == "merge" else 1
+
+    suffix = " [isolated]" if v.get("isolated") else ""
+    print(("✅ MERGE" if v["decision"] == "merge" else "🛑 REJECT")
+          + f"  ({repo}){suffix}")
+    print("изменённые файлы:", ", ".join(v.get("changed_files", [])) or "—")
+    for r in v.get("reasons", []):
+        print("  •", r)
+    for e in v.get("closed_world", []):
+        print("    cw:", e)
+    for e in v.get("danger", []):
+        print("    danger:", e)
+    if v.get("test_output"):
+        print("  вывод оракула (хвост):")
+        print("    " + v["test_output"].replace("\n", "\n    "))
+    return 0 if v["decision"] == "merge" else 1
+
+
 def main() -> int:
     import argparse
     import json
@@ -409,42 +452,8 @@ def main() -> int:
 
     diff_text = sys.stdin.read() if a.diff == "-" else \
         Path(a.diff).read_text(encoding="utf-8")
-
-    # Явный флаг важнее конфига; None = не задано → берём из env/greenlock.json.
-    isolated = a.isolated if a.isolated is not None else _truthy(DOCKER)
-    trust = a.trust if a.trust is not None else _truthy(TRUST)
-    if isolated:
-        image = a.image or DOCKER_IMAGE or isolate.DEFAULT_IMAGE
-        try:
-            v = isolate.verify_patch_isolated(a.repo, diff_text, image=image)
-        except RuntimeError as e:
-            # Изоляция запрошена явно, но Docker недоступен — fail-closed:
-            # молча откатываться на небезопасный путь нельзя.
-            v = {"decision": "reject", "isolated": True, "reasons": [str(e)],
-                 "changed_files": [], "closed_world": [], "danger": [],
-                 "failing_stage": None, "regression": False,
-                 "confidence": None, "test_output": ""}
-    else:
-        v = verify_patch(a.repo, diff_text, trust=trust)
-
-    if a.json:
-        print(json.dumps(v, ensure_ascii=False, indent=2))
-        return 0 if v["decision"] == "merge" else 1
-
-    suffix = " [isolated]" if v.get("isolated") else ""
-    print(("✅ MERGE" if v["decision"] == "merge" else "🛑 REJECT")
-          + f"  ({a.repo}){suffix}")
-    print("изменённые файлы:", ", ".join(v["changed_files"]) or "—")
-    for r in v["reasons"]:
-        print("  •", r)
-    for e in v["closed_world"]:
-        print("    cw:", e)
-    for e in v.get("danger", []):
-        print("    danger:", e)
-    if v["test_output"]:
-        print("  вывод оракула (хвост):")
-        print("    " + v["test_output"].replace("\n", "\n    "))
-    return 0 if v["decision"] == "merge" else 1
+    return run_verdict(a.repo, diff_text, isolated=a.isolated, image=a.image,
+                       trust=a.trust, as_json=a.json)
 
 
 if __name__ == "__main__":
