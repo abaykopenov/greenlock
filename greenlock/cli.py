@@ -23,7 +23,7 @@ def _version() -> str:
         from importlib.metadata import version
         return version("greenlock")
     except Exception:
-        return "0.1.0"
+        return "0.1.1"
 
 
 def _read_diff(path: str) -> str:

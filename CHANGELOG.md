@@ -5,6 +5,12 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/); versions
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-06-19
+
+Usability + multi-language accuracy. Coverage-based confidence now spans Python, JS, Go
+and Rust (with tree-sitter precision parity), plus a unified `greenlock` CLI, `doctor`,
+actionable reject hints, PR comments, a pre-commit hook, and PyPI publishing.
+
 ### Added
 - **Unified `greenlock` CLI.** A single console command with subcommands instead of the
   scattered `greenlock-gate`/`-mcp` scripts (and the README's non-existent `greenlock init`):
@@ -88,4 +94,5 @@ tests pass, no regression), otherwise refused. Headline: **WRONG-APPLY = 0**.
   ephemeral environment. See `SECURITY.md`.
 - Alpha: limited real-world validation; not yet on PyPI (install from source).
 
+[0.1.1]: https://github.com/abaykopenov/greenlock/releases/tag/v0.1.1
 [0.1.0]: https://github.com/abaykopenov/greenlock/releases/tag/v0.1.0

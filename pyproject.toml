@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "greenlock"
-version = "0.1.0"
+version = "0.1.1"
 description = "Deterministic verify-gate for AI code changes: apply only if green, else refuse (WRONG-APPLY = 0)."
 readme = "README.md"
 requires-python = ">=3.10"

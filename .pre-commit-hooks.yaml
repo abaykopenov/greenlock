@@ -2,7 +2,7 @@
 #
 # В целевом репозитории добавь в .pre-commit-config.yaml:
 #   - repo: https://github.com/abaykopenov/greenlock
-#     rev: v0.1.0
+#     rev: v0.1.1
 #     hooks:
 #       - id: greenlock
 # pre-commit сам установит пакет (даёт команду `greenlock`) и прогонит гейт по

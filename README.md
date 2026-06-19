@@ -158,7 +158,7 @@ hook), or via the [pre-commit](https://pre-commit.com) framework — add to your
 ```yaml
 repos:
   - repo: https://github.com/abaykopenov/greenlock
-    rev: v0.1.0
+    rev: v0.1.1
     hooks:
       - id: greenlock        # runs `greenlock check --staged` before each commit
 ```
@@ -181,7 +181,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.x" }
       - run: pip install -e .              # install YOUR test deps (oracle runs your suite)
-      - uses: abaykopenov/greenlock@v0.1.0   # the gate: merge or block (pin to a release)
+      - uses: abaykopenov/greenlock@v0.1.1   # the gate: merge or block (pin to a release)
 ```
 
 The step exits non-zero on **reject**, so with branch protection the PR can't merge. It
