@@ -55,3 +55,13 @@ def test_node_covered_change_merges():
     """Рефактор покрытой тестом строки (поведение то же) → merge."""
     v = verify_patch(str(REPO), _diff(_refactor_covered))
     assert v["decision"] == "merge", v["reasons"]
+
+
+@_node
+def test_node_comment_only_change_merges():
+    """Паритет с Python: правка только комментария не требует покрытия → merge
+    (раньше line-level дал бы ложный degraded)."""
+    def _add_comment(lines):
+        return ["// greenlock parity comment\n"] + list(lines)
+    v = verify_patch(str(REPO), _diff(_add_comment))
+    assert v["decision"] == "merge", v["reasons"]

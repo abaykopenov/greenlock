@@ -79,7 +79,7 @@ class GoVerifier:
             return "full", "\n[coverage] go coverprofile run failed — пропуск"
         if not prof.exists():
             return "full", "\n[coverage] go coverprofile not produced — пропуск"
-        from greenlock.coverage import go_cover_executed_lines
+        from greenlock.coverage import go_cover_executed_lines, code_changed_lines
         cov = go_cover_executed_lines(prof.read_text(encoding="utf-8"))
         try:
             prof.unlink()
@@ -92,7 +92,14 @@ class GoVerifier:
                        if name == rel or name == inner or name.endswith("/" + inner)), None)
             if ex is None:
                 continue            # нет данных для файла → fail-open
-            if not (set(lns) & ex):
+            try:
+                src = (Path(workdir) / rel).read_text(encoding="utf-8")
+            except OSError:
+                continue
+            code = code_changed_lines(src, ".go", set(lns))
+            if not code:
+                continue            # комментарии/import/сигнатуры → покрытие не требуется
+            if not (code & ex):
                 uncovered.append(rel)
         if uncovered:
             return "degraded", ("\nChanged code is NOT exercised by the test suite "

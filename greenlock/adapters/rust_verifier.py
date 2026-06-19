@@ -84,7 +84,7 @@ class RustVerifier:
             return "full", "\n[coverage] cargo-llvm-cov run failed — пропуск"
         if not lcov.exists():
             return "full", "\n[coverage] lcov не получен — пропуск"
-        from greenlock.coverage import lcov_executed_lines
+        from greenlock.coverage import lcov_executed_lines, code_changed_lines
         cov = lcov_executed_lines(lcov.read_text(encoding="utf-8"))
         try:
             lcov.unlink()
@@ -97,7 +97,14 @@ class RustVerifier:
                        if os.path.realpath(f) == target or f.endswith(rel)), None)
             if ex is None:
                 continue            # нет данных для файла → fail-open
-            if not (set(lns) & ex):
+            try:
+                src = (Path(workdir) / rel).read_text(encoding="utf-8")
+            except OSError:
+                continue
+            code = code_changed_lines(src, ".rs", set(lns))
+            if not code:
+                continue            # комментарии/use/сигнатуры → покрытие не требуется
+            if not (code & ex):
                 uncovered.append(rel)
         if uncovered:
             return "degraded", ("\nChanged code is NOT exercised by the test suite "

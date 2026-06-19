@@ -19,6 +19,11 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/); versions
   (arbitrary commands) has no generic coverage.
   Note: Go/Rust integration is not yet validated against a live toolchain in CI (none
   installed); the tested parsers + fail-open wiring make this safe (worst case: no-op).
+- **Precision parity with Python.** For JS/Go/Rust the set of changed lines that *require*
+  coverage is computed via tree-sitter (`code_changed_lines`): comments, blank/brace lines,
+  declaration signatures and imports are excluded — so a comment- or signature-only change
+  no longer falsely degrades, matching the Python AST-based behavior. Falls back to a
+  heuristic without tree-sitter.
 
 ## [0.1.0] — 2026-06-19
 

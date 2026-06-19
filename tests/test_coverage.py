@@ -1,6 +1,16 @@
 """Юнит-тесты честного покрытия (WS-1): stmt_line_map / coverage_verdict + парсер дифа."""
-from greenlock.coverage import coverage_verdict, stmt_line_map
+import pytest
+
+from greenlock.coverage import code_changed_lines, coverage_verdict, stmt_line_map
 from greenlock.gate import _changed_lines
+
+
+def _has_ts() -> bool:
+    try:
+        from greenlock.adapters.tree_sitter_adapter import HAS_TREE_SITTER
+        return HAS_TREE_SITTER
+    except Exception:
+        return False
 
 SRC = (
     "def foo(x):\n"          # 1  заголовок def — пропускается
@@ -87,3 +97,21 @@ def test_lcov_parser():
     cov = lcov_executed_lines(text)
     assert cov["/abs/src/lib.rs"] == {3, 5}
     assert cov["/abs/src/other.rs"] == set()
+
+
+def test_code_changed_lines_fallback_excludes_noncode():
+    """Без tree-sitter (неизвестный ext) — эвристика: только тело-код требует покрытия."""
+    src = "x = 1\n// comment\n\n   \n}\n"
+    assert code_changed_lines(src, ".unknownlang", {1, 2, 3, 4, 5}) == {1}
+
+
+@pytest.mark.skipif(not _has_ts(), reason="нужен tree-sitter")
+def test_code_changed_lines_ts_parity_js_go_rust():
+    """Паритет с Python-AST: комментарии/import/сигнатуры/скобки НЕ требуют покрытия,
+    тело функции — требует (точно, через tree-sitter)."""
+    js = "// c\nimport x from 'y';\nfunction f(a) {\n  return a + 1;\n}\n"
+    assert code_changed_lines(js, ".js", {1, 2, 3, 4, 5}) == {4}
+    go = "package m\n// c\nimport \"fmt\"\nfunc F(a int) int {\n\treturn a + 1\n}\n"
+    assert code_changed_lines(go, ".go", {1, 2, 3, 4, 5, 6}) == {5}
+    rs = "// c\nuse std::fmt;\nfn f(a: i32) -> i32 {\n    a + 1\n}\n"
+    assert code_changed_lines(rs, ".rs", {1, 2, 3, 4, 5}) == {4}

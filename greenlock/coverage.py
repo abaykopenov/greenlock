@@ -14,7 +14,107 @@ import os
 
 __all__ = ["stmt_line_map", "coverage_verdict", "run_pytest_traced",
            "v8_executed_changed_lines", "go_cover_executed_lines",
-           "lcov_executed_lines"]
+           "lcov_executed_lines", "code_changed_lines"]
+
+# Точность как у Python-AST для прочих языков: какие изменённые строки РЕАЛЬНО требуют
+# покрытия. Исключаем комментарии, пустые/скобочные строки, шапки объявлений и import —
+# так правка комментария/сигнатуры не даёт ложного degraded (паритет с stmt_line_map).
+_TS_LANG = {
+    ".js": "javascript", ".jsx": "javascript", ".mjs": "javascript", ".cjs": "javascript",
+    ".ts": "typescript", ".go": "go", ".rs": "rust", ".java": "java",
+    ".c": "c", ".h": "c", ".cpp": "cpp", ".cc": "cpp", ".cs": "csharp",
+    ".rb": "ruby", ".php": "php",
+}
+_COMMENT_KINDS = {"comment", "line_comment", "block_comment", "doc_comment"}
+_IMPORT_KINDS = {"import_declaration", "import_spec", "import_statement",
+                 "use_declaration", "package_clause", "preproc_include", "using_directive"}
+_DECL_KINDS = {
+    "function_declaration", "method_declaration", "function_item", "function_definition",
+    "method_definition", "function_expression", "generator_function_declaration",
+    "class_declaration", "class_specifier", "struct_specifier", "struct_item",
+    "enum_item", "enum_specifier", "trait_item", "impl_item", "type_declaration",
+    "interface_declaration", "enum_declaration", "class", "module", "method",
+    "singleton_method", "trait_declaration",
+}
+
+
+def _noncode_lines_ts(source: str, lang_name: str):
+    """{1-based строки}, НЕ требующие покрытия (комментарии/import/шапки объявлений),
+    через tree-sitter. None — если tree-sitter недоступен/язык не парсится (→ фолбэк)."""
+    try:
+        from greenlock.adapters.tree_sitter_adapter import (
+            HAS_TREE_SITTER, _ts_langs, _kind, _start_row, _end_row, _children, _v)
+    except Exception:
+        return None
+    if not HAS_TREE_SITTER:
+        return None
+    try:
+        parser = _ts_langs.get_parser(lang_name)
+    except Exception:
+        return None
+    try:
+        try:
+            tree = parser.parse(source)
+        except TypeError:
+            tree = parser.parse(source.encode("utf-8"))
+    except Exception:
+        return None
+
+    noncode: set[int] = set()
+
+    def _body_start_row(node):
+        for ch in _children(node):
+            k = _kind(ch)
+            if "block" in k or "body" in k or k in (
+                    "declaration_list", "field_declaration_list", "compound_statement"):
+                return _start_row(ch)
+        return None
+
+    def walk(node):
+        k = _kind(node)
+        if k in _COMMENT_KINDS or k in _IMPORT_KINDS:
+            for r in range(_start_row(node), _end_row(node) + 1):
+                noncode.add(r + 1)
+        elif k in _DECL_KINDS:
+            bs = _body_start_row(node)
+            end = bs if bs is not None else _end_row(node)
+            for r in range(_start_row(node), end + 1):   # шапка (до тела включительно)
+                noncode.add(r + 1)
+        for ch in _children(node):
+            walk(ch)
+
+    try:
+        walk(_v(tree.root_node))
+    except Exception:
+        return None
+    return noncode
+
+
+def code_changed_lines(source: str, ext: str, changed: set[int]) -> set[int]:
+    """Подмножество changed, которое РЕАЛЬНО требует покрытия (паритет с Python-AST для
+    прочих языков): без комментариев, пустых/скобочных строк, шапок объявлений, import.
+
+    tree-sitter — точно; без него — эвристика (пустые/скобки/строки-комментарии).
+    """
+    lang = _TS_LANG.get(ext.lower())
+    src_lines = source.split("\n")
+    noncode = _noncode_lines_ts(source, lang) if lang else None
+    out: set[int] = set()
+    for ln in changed:
+        if ln < 1 or ln > len(src_lines):
+            continue
+        s = src_lines[ln - 1].strip()
+        if not s:
+            continue                                   # пустая строка
+        if all(c in "{}()[];,: \t" for c in s):
+            continue                                   # только скобки/пунктуация
+        if noncode is not None:
+            if ln in noncode:
+                continue
+        elif s.startswith(("//", "#", "/*", "*", "*/", "--")):
+            continue                                   # фолбэк: строка-комментарий
+        out.add(ln)
+    return out
 
 
 def go_cover_executed_lines(profile_text: str) -> dict[str, set[int]]:

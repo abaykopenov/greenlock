@@ -223,7 +223,7 @@ class NodeVerifier:
         """
         import os
         import shutil
-        from greenlock.coverage import v8_executed_changed_lines
+        from greenlock.coverage import v8_executed_changed_lines, code_changed_lines
 
         changed_lines = getattr(self, "changed_lines", None)
         if not changed_lines:
@@ -248,8 +248,15 @@ class NodeVerifier:
 
         uncovered = []
         for rel, lns in js.items():
+            try:
+                src = (workdir / rel).read_text(encoding="utf-8")
+            except OSError:
+                continue
+            code = code_changed_lines(src, Path(rel).suffix, set(lns))
+            if not code:
+                continue   # изменены только комментарии/import/сигнатуры → покрытие не требуется
             measured, executed = v8_executed_changed_lines(
-                str(cov_dir), str((workdir / rel).resolve()), set(lns))
+                str(cov_dir), str((workdir / rel).resolve()), code)
             if measured and not executed:
                 uncovered.append(rel)
         shutil.rmtree(cov_dir, ignore_errors=True)
